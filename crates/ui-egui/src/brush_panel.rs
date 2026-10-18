@@ -353,6 +353,12 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         app.ui.brush_section = 0;
     }
     let section = app.ui.brush_section;
+    let patterns = app.session.patterns.items.clone();
+    let pattern_groups = crate::preset_panels::pattern_group_views(&patterns, &app.session.presets.pattern_groups);
+    // This picker owns independent selection state; the main Patterns panel selection may refer to
+    // an unrelated fill operation and must not bleed into Brush Settings.
+    let selected_pattern = app.ui.presets_ui.selected.get("brush-texture-patterns").cloned().unwrap_or_default();
+    let mut picked_pattern = None;
     ui.horizontal_top(|ui| {
         section_list(app, ui, &mut b);
         widgets::vline(ui, 482.0);
@@ -368,9 +374,25 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 // The picked preset is recorded by name (`brush.presets.setCurrent`, identity, so
                 // look-alike duplicates stay distinct), since the engine can't infer it from the
                 // brush afterwards.
-                ui.add_enabled_ui(on, |ui| section_body(ui, &mut b, section, &app.session.tools.presets, app.session.tools.current_preset.as_deref()))
-                    .inner
-                    .inspect(|name| run_or_status(app, "brush.presets.setCurrent", json!({ "name": name })));
+                ui.add_enabled_ui(on, |ui| {
+                    if section == 3 {
+                        crate::brush_sections::section_body_with_patterns(
+                            ui,
+                            &mut b,
+                            section,
+                            &app.session.tools.presets,
+                            app.session.tools.current_preset.as_deref(),
+                            &patterns,
+                            &pattern_groups,
+                            &selected_pattern,
+                            &mut picked_pattern,
+                        )
+                    } else {
+                        section_body(ui, &mut b, section, &app.session.tools.presets, app.session.tools.current_preset.as_deref())
+                    }
+                })
+                .inner
+                .inspect(|name| run_or_status(app, "brush.presets.setCurrent", json!({ "name": name })));
             });
         });
     });
@@ -402,6 +424,12 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         });
     });
     commit_gesture(app, ui.ctx(), &before, &b);
+    if let Some(pattern) = picked_pattern {
+        // The command converts the selected library pattern to the brush engine's greyscale tile.
+        // Run after the settings diff so all other Texture fields remain untouched by selection.
+        run_or_status(app, "brush.texturePattern", json!({ "pattern": pattern }));
+        app.ui.presets_ui.selected.insert("brush-texture-patterns".into(), pattern);
+    }
 }
 
 /// Clear brush controls: turns off every section except Smoothing and resets their options
