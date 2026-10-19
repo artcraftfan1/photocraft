@@ -295,7 +295,27 @@ pub(crate) fn compact_pattern_browser(
         state
     });
     state.selected.insert(panel.into(), selected.to_string());
-    state.sizes.insert(panel.into(), 40.0);
+    state.sizes.entry(panel.into()).or_insert(40.0);
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let menu = crate::icons::button(ui, "settings", 20.0, false, tl!("Panel menu"));
+            egui::Popup::menu(&menu).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                ui.label(tl!("Display"));
+                ui.separator();
+                for (label, size) in [
+                    (tl!("Small Thumbnail"), 28.0),
+                    (tl!("Large Thumbnail"), 40.0),
+                    (tl!("List"), MIN_THUMB),
+                ] {
+                    if ui.selectable_label((*state.sizes.get(panel).unwrap_or(&40.0) - size).abs() < 0.1, label).clicked() {
+                        state.sizes.insert(panel.into(), size);
+                        ui.close();
+                    }
+                }
+            });
+        });
+    });
+    let browser_h = max_h.min(ui.available_height());
     let mut adapter = BrowserAdapter {
         panel,
         groups,
@@ -318,7 +338,7 @@ pub(crate) fn compact_pattern_browser(
         },
     };
     let mut picked = None;
-    for event in browser(ui, &mut state, &mut adapter, max_h) {
+    for event in browser(ui, &mut state, &mut adapter, browser_h) {
         if let Ev::Select(id) | Ev::Activate(id) = event {
             if id != selected {
                 picked = Some(id);

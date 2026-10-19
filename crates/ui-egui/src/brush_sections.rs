@@ -455,10 +455,28 @@ fn texture(
             if let Some(id) = egui::Popup::menu(&button)
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                 .show(|ui| {
-                    ui.set_width(232.0);
-                    crate::preset_panels::compact_pattern_browser(ui, patterns, groups, selected_pattern, "brush-texture-patterns", 140.0)
+                    let max = (ui.ctx().content_rect().size() - vec2(40.0, 40.0))
+                        .max(vec2(180.0, 140.0));
+                    egui::Resize::default()
+                        .id(egui::Id::new("brush-texture-pattern-browser-resize"))
+                        .with_stroke(false)
+                        .default_size(vec2(232.0, 180.0).min(max))
+                        .min_size(vec2(180.0, 140.0))
+                        .max_size(max)
+                        .show(ui, |ui| {
+                            let browser_h = ui.available_height();
+                            crate::preset_panels::compact_pattern_browser(
+                                ui,
+                                patterns,
+                                groups,
+                                selected_pattern,
+                                "brush-texture-patterns",
+                                browser_h,
+                            )
+                        })
                 })
-                .and_then(|r| r.inner)
+                .map(|r| r.inner)
+                .flatten()
             {
                 *picked_pattern = Some(id);
             }
