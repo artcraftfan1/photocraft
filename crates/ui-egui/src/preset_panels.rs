@@ -565,6 +565,55 @@ pub(crate) struct BrowserAdapter<'a> {
 pub(crate) type ItemContextMenu = fn(&mut egui::Ui, &mut PresetUi, &str, &ItemView, &GroupView, &[String], &mut Vec<Ev>);
 pub(crate) type GroupContextMenu = fn(&mut egui::Ui, &mut PresetUi, &str, &GroupView, &mut Vec<Ev>);
 
+/// Actions shared by picker item and group context menus. Consumers translate these into their
+/// own state updates or engine commands, while the menu labels and interaction stay consistent.
+pub(crate) enum ContextMenuAction {
+    Rename,
+    Delete,
+    MoveTo(String),
+}
+
+pub(crate) fn draw_item_context_menu(
+    ui: &mut egui::Ui,
+    rename_label: &str,
+    delete_label: &str,
+    move_to: Option<(&str, &[String], &str)>,
+) -> Option<ContextMenuAction> {
+    if ui.button(rename_label).clicked() {
+        ui.close();
+        return Some(ContextMenuAction::Rename);
+    }
+    if ui.button(delete_label).clicked() {
+        ui.close();
+        return Some(ContextMenuAction::Delete);
+    }
+    if let Some((label, group_names, current_group)) = move_to {
+        let mut action = None;
+        ui.menu_button(label, |ui| {
+            for group in group_names.iter().filter(|name| name.as_str() != current_group) {
+                if ui.button(group).clicked() {
+                    action = Some(ContextMenuAction::MoveTo(group.clone()));
+                    ui.close();
+                }
+            }
+        });
+        return action;
+    }
+    None
+}
+
+pub(crate) fn draw_group_context_menu(ui: &mut egui::Ui, rename_label: &str, delete_label: &str) -> Option<ContextMenuAction> {
+    if ui.button(rename_label).clicked() {
+        ui.close();
+        Some(ContextMenuAction::Rename)
+    } else if ui.button(delete_label).clicked() {
+        ui.close();
+        Some(ContextMenuAction::Delete)
+    } else {
+        None
+    }
+}
+
 /// Default menu policy for the standard preset panels. Keeping this separate from the browser
 /// lets specialised consumers supply their own operations without forking the shared hit targets.
 pub(crate) fn standard_item_context_menu(
@@ -576,32 +625,19 @@ pub(crate) fn standard_item_context_menu(
     group_names: &[String],
     ev: &mut Vec<Ev>,
 ) {
-    if ui.button(tl!("Rename…")).clicked() {
-        st.renaming = Some((panel.to_string(), item.key.clone(), item.name.clone()));
-        ui.close();
+    match draw_item_context_menu(ui, tl!("Rename…"), tl!("Delete"), Some((tl!("Move to"), group_names, &group.name))) {
+        Some(ContextMenuAction::Rename) => st.renaming = Some((panel.to_string(), item.key.clone(), item.name.clone())),
+        Some(ContextMenuAction::Delete) => ev.push(Ev::Delete(item.key.clone())),
+        Some(ContextMenuAction::MoveTo(group)) => ev.push(Ev::Move(item.key.clone(), group)),
+        None => {}
     }
-    if ui.button(tl!("Delete")).clicked() {
-        ev.push(Ev::Delete(item.key.clone()));
-        ui.close();
-    }
-    ui.menu_button(tl!("Move to"), |ui| {
-        for gname in group_names.iter().filter(|n| **n != group.name).cloned() {
-            if ui.button(&gname).clicked() {
-                ev.push(Ev::Move(item.key.clone(), gname));
-                ui.close();
-            }
-        }
-    });
 }
 
 pub(crate) fn standard_group_context_menu(ui: &mut egui::Ui, st: &mut PresetUi, panel: &str, group: &GroupView, ev: &mut Vec<Ev>) {
-    if ui.button(tl!("Rename Group…")).clicked() {
-        st.renaming = Some((panel.to_string(), format!("group:{}", group.name), group.name.clone()));
-        ui.close();
-    }
-    if ui.button(tl!("Delete Group")).clicked() {
-        ev.push(Ev::DeleteGroup(group.name.clone()));
-        ui.close();
+    match draw_group_context_menu(ui, tl!("Rename Group…"), tl!("Delete Group")) {
+        Some(ContextMenuAction::Rename) => st.renaming = Some((panel.to_string(), format!("group:{}", group.name), group.name.clone())),
+        Some(ContextMenuAction::Delete) => ev.push(Ev::DeleteGroup(group.name.clone())),
+        _ => {}
     }
 }
 
@@ -633,10 +669,13 @@ impl<'a> FooterOptions<'a> {
 /// dispatch browser item/group actions.
 #[derive(Default)]
 pub(crate) struct ShellOptions<'a> {
+    pub(crate) header: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
     pub(crate) panel_menu: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
     pub(crate) search: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
     pub(crate) recents: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
     pub(crate) footer: Option<FooterOptions<'a>>,
+    /// Consumer-owned footer renderer plus the height it reserves in the browser viewport.
+    pub(crate) custom_footer: Option<(&'a mut dyn FnMut(&mut egui::Ui), f32)>,
 }
 
 /// Space between the cells of a preset grid, and the grid's inset from the panel's left edge.
@@ -858,15 +897,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
 /// item/group actions remain generic `Ev` values for the consumer to handle.
 pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut BrowserAdapter<'_>, mut shell: ShellOptions<'_>) -> Vec<Ev> {
     let panel = adapter.panel.to_string();
-    if let Some(menu) = shell.panel_menu.as_deref_mut() {
-        ui.horizontal(|ui| menu(ui));
-    }
-    if let Some(search) = shell.search.as_deref_mut() {
-        search(ui);
-    }
-    if let Some(recents) = shell.recents.as_deref_mut() {
-        recents(ui);
-    }
+    shell_controls(ui, &mut shell);
 
     let footer_id = egui::Id::new(("preset-footer", panel.as_str()));
     let footer_h = if shell.footer.is_some() { ui.data(|d| d.get_temp::<f32>(footer_id)).unwrap_or(FOOTER_GUESS) } else { 0.0 };
@@ -909,6 +940,37 @@ pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut B
         }
     }
     events
+}
+
+/// Shared shell layout for consumers with a specialised browser renderer. The shell owns the
+/// optional top controls and allocates the remaining height; the consumer keeps its own rendering
+/// and action model until it can be represented by `BrowserAdapter`.
+pub(crate) fn picker_shell_custom<R>(ui: &mut egui::Ui, max_h: f32, mut shell: ShellOptions<'_>, draw_browser: impl FnOnce(&mut egui::Ui, f32) -> R) -> R {
+    debug_assert!(shell.footer.is_none(), "custom browser renderers use the custom footer slot");
+    shell_controls(ui, &mut shell);
+    let footer_h = shell.custom_footer.as_ref().map_or(0.0, |(_, h)| *h + 4.0);
+    let allocated_h = max_h.min((ui.available_height() - footer_h).max(0.0));
+    let result = draw_browser(ui, allocated_h);
+    if let Some((footer, _)) = shell.custom_footer {
+        ui.add_space(4.0);
+        footer(ui);
+    }
+    result
+}
+
+fn shell_controls(ui: &mut egui::Ui, shell: &mut ShellOptions<'_>) {
+    if let Some(header) = shell.header.as_deref_mut() {
+        ui.horizontal(|ui| header(ui));
+    }
+    if let Some(menu) = shell.panel_menu.as_deref_mut() {
+        ui.horizontal(|ui| menu(ui));
+    }
+    if let Some(search) = shell.search.as_deref_mut() {
+        search(ui);
+    }
+    if let Some(recents) = shell.recents.as_deref_mut() {
+        recents(ui);
+    }
 }
 
 /// The folder (by library index) a header dragged to `y` lands before (`None` = last). `headers`
@@ -1752,6 +1814,36 @@ mod tests {
     }
 
     #[test]
+    fn custom_picker_shell_renders_search_and_passes_remaining_height_to_renderer() {
+        use std::{cell::Cell, rc::Rc};
+
+        use egui_kittest::Harness;
+
+        let calls = Rc::new(Cell::new(0));
+        let observed_height = Rc::new(Cell::new(0.0_f32));
+        let call_count = Rc::clone(&calls);
+        let height = Rc::clone(&observed_height);
+        let mut search = move |ui: &mut egui::Ui| {
+            call_count.set(call_count.get() + 1);
+            ui.label("Brush search");
+        };
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut h = Harness::builder().with_size(vec2(320.0, 300.0)).build_ui_state(
+            |ui, _app: &mut PhotocraftApp| {
+                picker_shell_custom(ui, 260.0, ShellOptions { search: Some(&mut search), ..Default::default() }, |ui, allocated_h| {
+                    height.set(allocated_h);
+                    ui.allocate_exact_size(vec2(ui.available_width(), allocated_h.min(50.0)), Sense::hover());
+                });
+            },
+            app,
+        );
+        h.run_steps(2);
+        assert!(calls.get() > 0, "the shared shell renders enabled search controls");
+        assert!(observed_height.get() > 100.0, "the custom renderer receives the space remaining after shell controls");
+        assert!(observed_height.get() <= 260.0, "the custom renderer respects its consumer height cap");
+    }
+
+    #[test]
     fn picker_shell_controls_and_browser_capabilities_are_optional() {
         use std::{
             cell::{Cell, RefCell},
@@ -1806,7 +1898,7 @@ mod tests {
                     ui,
                     &mut st,
                     &mut adapter,
-                    ShellOptions { panel_menu: Some(&mut menu), search: Some(&mut search), recents: Some(&mut recents), footer: None },
+                    ShellOptions { panel_menu: Some(&mut menu), search: Some(&mut search), recents: Some(&mut recents), footer: None, ..Default::default() },
                 );
                 captured_events.borrow_mut().extend(emitted);
             },

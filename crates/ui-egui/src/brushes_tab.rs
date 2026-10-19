@@ -19,6 +19,7 @@ use serde_json::json;
 
 use crate::brush_panel::{BrushesPanelState, BrushesView, Renaming, UNGROUPED, commit_gesture, full_uv, grouped_presets, run_or_status};
 use crate::brush_preview;
+use crate::preset_panels::{ShellOptions, picker_shell_custom};
 use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
 
@@ -262,13 +263,12 @@ fn preset_interactions(ui: &egui::Ui, resp: &egui::Response, r: egui::Rect, p: &
         acts.push(Action::Select(p.name.clone()));
     }
     crate::preset_panels::context_menu_target(resp.clone(), |ui| {
-        if ui.button(tl!("Rename Brush…")).clicked() {
-            acts.push(Action::BeginRename(Renaming { group: false, name: p.name.clone(), folder: Vec::new(), text: String::new() }));
-            ui.close();
-        }
-        if ui.button(tl!("Delete Brush")).clicked() {
-            acts.push(Action::Delete(p.name.clone()));
-            ui.close();
+        match crate::preset_panels::draw_item_context_menu(ui, tl!("Rename Brush…"), tl!("Delete Brush"), None) {
+            Some(crate::preset_panels::ContextMenuAction::Rename) => {
+                acts.push(Action::BeginRename(Renaming { group: false, name: p.name.clone(), folder: Vec::new(), text: String::new() }));
+            }
+            Some(crate::preset_panels::ContextMenuAction::Delete) => acts.push(Action::Delete(p.name.clone())),
+            Some(crate::preset_panels::ContextMenuAction::MoveTo(_)) | None => {}
         }
     });
 }
@@ -656,13 +656,12 @@ fn group_header(ui: &mut egui::Ui, label: &str, key: &str, folder: &[String], op
         acts.push(Action::ToggleGroup(folder_view_key(label, folder)));
     }
     crate::preset_panels::context_menu_target(resp.clone(), |ui| {
-        if ui.button(tl!("Rename Group…")).clicked() {
-            acts.push(Action::BeginRename(Renaming { group: true, name: key.to_string(), folder: folder.to_vec(), text: String::new() }));
-            ui.close();
-        }
-        if ui.button(tl!("Delete Group")).clicked() {
-            acts.push(Action::DeleteGroup { group: key.to_string(), folder: folder.to_vec() });
-            ui.close();
+        match crate::preset_panels::draw_group_context_menu(ui, tl!("Rename Group…"), tl!("Delete Group")) {
+            Some(crate::preset_panels::ContextMenuAction::Rename) => {
+                acts.push(Action::BeginRename(Renaming { group: true, name: key.to_string(), folder: folder.to_vec(), text: String::new() }));
+            }
+            Some(crate::preset_panels::ContextMenuAction::Delete) => acts.push(Action::DeleteGroup { group: key.to_string(), folder: folder.to_vec() }),
+            Some(crate::preset_panels::ContextMenuAction::MoveTo(_)) | None => {}
         }
     });
 }
@@ -921,25 +920,38 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
     commit_gesture(app, ui.ctx(), &before, &b);
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        icons::paint(ui, egui::Rect::from_min_size(ui.cursor().min + vec2(0.0, 3.0), vec2(16.0, 16.0)), "search", 14.0, t.text_faint);
-        ui.add_space(20.0);
-        let search_w = (inner_w - 112.0).clamp(90.0, inner_w - 40.0);
-        widgets::text_field(ui, ui.id().with("brush-search"), &mut app.ui.brushes_panel.filter, tl!("Search Brushes"), search_w, false);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let view = &mut app.ui.brushes_panel.view;
-            let grid_tip = "Grid view";
-            let list_tip = "List view";
-            if icons::button(ui, "grid-2x2", 24.0, *view == BrushesView::Grid, tl!(grid_tip)).clicked() {
-                *view = BrushesView::Grid;
-            }
-            if icons::button(ui, "align-justify", 24.0, *view == BrushesView::List, tl!(list_tip)).clicked() {
-                *view = BrushesView::List;
-            }
+    let layout = responsive_list_layout(ui);
+    let filter = std::cell::RefCell::new(app.ui.brushes_panel.filter.clone());
+    let view = std::cell::Cell::new(app.ui.brushes_panel.view);
+    let mut search = |ui: &mut egui::Ui| {
+        ui.horizontal(|ui| {
+            icons::paint(ui, egui::Rect::from_min_size(ui.cursor().min + vec2(0.0, 3.0), vec2(16.0, 16.0)), "search", 14.0, t.text_faint);
+            ui.add_space(20.0);
+            let search_w = (inner_w - 112.0).clamp(90.0, inner_w - 40.0);
+            widgets::text_field(ui, ui.id().with("brush-search"), &mut filter.borrow_mut(), tl!("Search Brushes"), search_w, false);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let grid_tip = "Grid view";
+                let list_tip = "List view";
+                if icons::button(ui, "grid-2x2", 24.0, view.get() == BrushesView::Grid, tl!(grid_tip)).clicked() {
+                    view.set(BrushesView::Grid);
+                }
+                if icons::button(ui, "align-justify", 24.0, view.get() == BrushesView::List, tl!(list_tip)).clicked() {
+                    view.set(BrushesView::List);
+                }
+            });
         });
+    };
+    let acts = picker_shell_custom(ui, layout.max_height, ShellOptions { search: Some(&mut search), ..Default::default() }, |ui, allocated_h| {
+        app.ui.brushes_panel.filter = filter.borrow().clone();
+        app.ui.brushes_panel.view = view.get();
+        preset_list(
+            ui,
+            &app.session.tools.presets,
+            app.session.tools.current_preset.as_deref(),
+            &mut app.ui.brushes_panel,
+            ListLayout { max_height: allocated_h, ..layout },
+        )
     });
-    ui.add_space(6.0);
-    let acts = preset_list(ui, &app.session.tools.presets, app.session.tools.current_preset.as_deref(), &mut app.ui.brushes_panel, responsive_list_layout(ui));
     apply(app, acts);
     ui.add_space(4.0);
     widgets::hairline(ui);

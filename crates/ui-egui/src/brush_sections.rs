@@ -5,7 +5,7 @@
 
 use egui::{Color32, RichText, Sense, Stroke, pos2, vec2};
 use photocraft_engine::BrushSettings;
-use photocraft_engine::paint::{self, BrushPreset, Control, Dynamic, MAX_BRUSH_SIZE, MaskMode, Pattern, PatternStyle, TipShape};
+use photocraft_engine::paint::{self, BrushPreset, Control, Dynamic, MAX_BRUSH_SIZE, MaskMode, Pattern, TipShape};
 
 use crate::brush_preview;
 use crate::theme::{self, Tokens};
@@ -34,9 +34,6 @@ pub const MASK_MODES: [(MaskMode, &str); 10] = [
     (MaskMode::LinearHeight, "Linear Height"),
     (MaskMode::Height, "Height"),
 ];
-
-const PATTERNS: [(PatternStyle, &str); 4] =
-    [(PatternStyle::Paper, "Paper"), (PatternStyle::Canvas, "Canvas"), (PatternStyle::Noise, "Noise"), (PatternStyle::Dots, "Dots")];
 
 /// Percent slider over a 0..`max` fraction.
 fn pct(ui: &mut egui::Ui, label: &str, v: &mut f32, max: f32) -> bool {
