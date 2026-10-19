@@ -263,8 +263,8 @@ pub(crate) fn pattern_picker(app: &PhotocraftApp, ui: &mut egui::Ui, selected: &
     let picked = egui::Popup::menu(&resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-            // Preserve the former six-swatch-wide popup while sharing the grouped browser.
-            ui.set_width(6.0 * (SWATCH + 4.0));
+            // Preserve six swatches across, with a dedicated settings strip beside the browser.
+            ui.set_width(6.0 * (SWATCH + 4.0) + 28.0);
             compact_pattern_browser(ui, pats, &groups, selected, "compact-pattern-picker", 240.0)
         })
         .and_then(|r| r.inner);
@@ -296,26 +296,16 @@ pub(crate) fn compact_pattern_browser(
     });
     state.selected.insert(panel.into(), selected.to_string());
     state.sizes.entry(panel.into()).or_insert(40.0);
-    ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let menu = crate::icons::button(ui, "settings", 20.0, false, tl!("Panel menu"));
-            egui::Popup::menu(&menu).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-                ui.label(tl!("Display"));
-                ui.separator();
-                for (label, size) in [
-                    (tl!("Small Thumbnail"), 28.0),
-                    (tl!("Large Thumbnail"), 40.0),
-                    (tl!("List"), MIN_THUMB),
-                ] {
-                    if ui.selectable_label((*state.sizes.get(panel).unwrap_or(&40.0) - size).abs() < 0.1, label).clicked() {
-                        state.sizes.insert(panel.into(), size);
-                        ui.close();
-                    }
-                }
-            });
-        });
-    });
     let browser_h = max_h.min(ui.available_height());
+    let parent_menu_id = egui::containers::menu::MenuState::from_ui(ui, |_, stack| stack.id);
+    let close_pending_id = egui::Id::new(("compact-pattern-submenu-close", panel));
+    if ui.ctx().data(|data| data.get_temp::<bool>(close_pending_id).unwrap_or(false)) {
+        // Defer this until the next frame: egui checks whether a submenu is open after
+        // rendering the parent popup. Closing it in the selection frame makes that same
+        // click look like an outside click to the parent popup.
+        egui::containers::menu::MenuState::from_id(ui.ctx(), parent_menu_id, |state| state.open_item = None);
+        ui.ctx().data_mut(|data| data.insert_temp(close_pending_id, false));
+    }
     let mut adapter = BrowserAdapter {
         panel,
         groups,
@@ -338,14 +328,54 @@ pub(crate) fn compact_pattern_browser(
         },
     };
     let mut picked = None;
-    for event in browser(ui, &mut state, &mut adapter, browser_h) {
-        if let Ev::Select(id) | Ev::Activate(id) = event {
-            if id != selected {
-                picked = Some(id);
+    ui.horizontal(|ui| {
+        let menu_width = 24.0;
+        let browser_width = (ui.available_width() - menu_width - ui.spacing().item_spacing.x).max(0.0);
+        ui.allocate_ui_with_layout(vec2(browser_width, browser_h), egui::Layout::top_down(egui::Align::Min), |browser_ui| {
+            for event in browser(browser_ui, &mut state, &mut adapter, browser_h) {
+                if let Ev::Select(id) | Ev::Activate(id) = event {
+                    if id != selected {
+                        picked = Some(id);
+                    }
+                    browser_ui.close();
+                }
             }
-            ui.close();
-        }
-    }
+        });
+        ui.allocate_ui_with_layout(vec2(menu_width, browser_h), egui::Layout::top_down(egui::Align::Min), |menu_ui| {
+            let mut menu = crate::icons::button(menu_ui, "settings", 20.0, false, tl!("Panel menu"));
+            // Nudge the submenu anchor into the browser by a few pixels instead of leaving a gap.
+            menu.interact_rect = menu.interact_rect.translate(egui::vec2(-3.0, 0.0));
+            // Keep this as a real submenu so clicks inside it don't dismiss the picker popup.
+            // egui's default submenu opens on hover, so drive its open state from the gear click.
+            let submenu_id = egui::containers::menu::SubMenu::id_from_widget_id(menu.id);
+            let mut submenu_open = egui::containers::menu::MenuState::from_ui(menu_ui, |state, _| state.open_item == Some(submenu_id));
+            if menu.clicked() {
+                submenu_open = !submenu_open;
+                egui::containers::menu::MenuState::from_ui(menu_ui, |state, _| {
+                    state.open_item = submenu_open.then_some(submenu_id);
+                });
+            }
+            if submenu_open {
+                egui::containers::menu::SubMenu::new().show(menu_ui, &menu, |ui| {
+                    ui.label(tl!("Display"));
+                    ui.separator();
+                    for (label, size) in [
+                        (tl!("Small Thumbnail"), 28.0),
+                        (tl!("Large Thumbnail"), 40.0),
+                        (tl!("List"), MIN_THUMB),
+                    ] {
+                        if ui.selectable_label((*state.sizes.get(panel).unwrap_or(&40.0) - size).abs() < 0.1, label).clicked() {
+                            state.sizes.insert(panel.into(), size);
+                            // Close only this submenu on the next frame; `ui.close()` would also
+                            // close the picker, and clearing MenuState now makes egui misclassify
+                            // this selection click as outside the parent popup.
+                            ui.ctx().data_mut(|data| data.insert_temp(close_pending_id, true));
+                        }
+                    }
+                });
+            }
+        });
+    });
     ui.data_mut(|d| d.insert_temp(state_id, state));
     picked
 }
