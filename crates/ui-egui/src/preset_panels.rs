@@ -553,7 +553,7 @@ const FOOTER_GUESS: f32 = 32.0;
 pub(crate) struct BrowserOptions {
     /// Canvas hit region used to distinguish drops onto the canvas from drops into the browser.
     pub(crate) canvas: Rect,
-    /// Consumer-specific cap; the shell reduces this after reserving its optional controls.
+    /// Maximum browser height for standalone browser use; picker shells allocate their remaining height.
     pub(crate) max_h: f32,
     /// Use touching, square-cornered grid cells rather than spaced preset cards.
     pub(crate) flush: bool,
@@ -974,7 +974,9 @@ pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut B
 
     let footer_id = egui::Id::new(("preset-footer", panel.as_str()));
     let footer_h = if shell.footer.is_some() { ui.data(|d| d.get_temp::<f32>(footer_id)).unwrap_or(FOOTER_GUESS) } else { 0.0 };
-    let allocated_h = adapter.options.max_h.min((ui.available_height() - footer_h).max(0.0));
+    // The shell owns the available viewport. Do not let a consumer's legacy thumbnail-grid cap
+    // leave unused space below a short control row; the browser itself scrolls within this region.
+    let allocated_h = (ui.available_height() - footer_h).max(0.0);
     let mut events = browser(ui, st, adapter, allocated_h);
 
     if let Some(footer) = shell.footer {
@@ -1888,7 +1890,7 @@ mod tests {
         h.run_steps(2);
         let rect = last_browser_rect(&h.ctx, "short-library");
         assert!(rect.is_some(), "browser viewport is recorded");
-        assert!(rect.unwrap().height() >= 175.0, "short libraries should retain their allocated height: {rect:?}");
+        assert!(rect.unwrap().height() >= 200.0, "short libraries should retain the remaining panel height: {rect:?}");
     }
 
     #[test]
@@ -2010,7 +2012,7 @@ mod tests {
         h.run_steps(3);
         assert!(menu_calls.get() > 0 && search_calls.get() > 0 && recent_calls.get() > 0, "enabled shell slots are rendered");
         let rect = last_browser_rect(&h.ctx, "compact-library").expect("browser viewport is recorded without a footer");
-        assert!(rect.height() > 100.0, "the browser receives the space left by optional controls: {rect:?}");
+        assert!(rect.height() > 200.0, "without a footer, the browser expands into the remaining panel space: {rect:?}");
         h.get_by_label("Only item").click();
         h.run_steps(2);
         assert!(events.borrow().is_empty(), "disabled browser capabilities do not emit consumer actions");
