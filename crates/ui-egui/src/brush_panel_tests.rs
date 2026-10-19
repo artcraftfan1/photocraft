@@ -89,6 +89,17 @@ fn brush_settings_texture_uses_compact_patterns_browser_and_keeps_panel_selectio
     assert_eq!(last_journal(h.state()).unwrap().0, "brush.texturePattern");
 }
 
+#[test]
+fn selecting_a_brush_preset_clears_the_compact_texture_pattern_selection() {
+    let mut app = app();
+    let preset = app.session.tools.presets.first().expect("built-in brush preset").name.clone();
+    app.ui.presets_ui.selected.insert("brush-texture-patterns".into(), "stale-pattern-id".into());
+
+    crate::brushes_tab::apply(&mut app, vec![crate::brushes_tab::Action::Select(preset)]);
+
+    assert!(!app.ui.presets_ui.selected.contains_key("brush-texture-patterns"));
+}
+
 /// What each section's controls edit, set to non-default values.
 fn edit_section(i: usize, b: &mut BrushSettings) {
     let dynamic = |jitter: f32, control: Control, minimum: f32| paint::Dynamic { jitter, control, fade_steps: 40, minimum, ..Default::default() };

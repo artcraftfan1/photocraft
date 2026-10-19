@@ -237,6 +237,11 @@ pub(crate) fn run_or_status(app: &mut PhotocraftApp, id: &str, p: Value) {
     }
 }
 
+/// Clear the compact Texture picker selection when the active brush changes.
+pub(crate) fn clear_texture_pattern_selection(app: &mut PhotocraftApp) {
+    app.ui.presets_ui.selected.remove("brush-texture-patterns");
+}
+
 pub(crate) fn full_uv() -> egui::Rect {
     egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
 }
@@ -353,8 +358,6 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         app.ui.brush_section = 0;
     }
     let section = app.ui.brush_section;
-    let patterns = app.session.patterns.items.clone();
-    let pattern_groups = crate::preset_panels::pattern_group_views(&patterns, &app.session.presets.pattern_groups);
     // This picker owns independent selection state; the main Patterns panel selection may refer to
     // an unrelated fill operation and must not bleed into Brush Settings.
     let selected_pattern = app.ui.presets_ui.selected.get("brush-texture-patterns").cloned().unwrap_or_default();
@@ -376,13 +379,17 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 // brush afterwards.
                 ui.add_enabled_ui(on, |ui| {
                     if section == 3 {
+                        // Build the group projection only while Texture is visible, borrowing the
+                        // library instead of cloning every pattern on each Brush Settings redraw.
+                        let patterns = &app.session.patterns.items;
+                        let pattern_groups = crate::preset_panels::pattern_group_views(patterns, &app.session.presets.pattern_groups);
                         crate::brush_sections::section_body_with_patterns(
                             ui,
                             &mut b,
                             section,
                             &app.session.tools.presets,
                             app.session.tools.current_preset.as_deref(),
-                            &patterns,
+                            patterns,
                             &pattern_groups,
                             &selected_pattern,
                             &mut picked_pattern,
@@ -411,6 +418,7 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
             if icons::button(ui, "undo-2", 24.0, false, tl!("Reset the brush to the defaults")).clicked() {
                 b = BrushSettings { color: b.color, background: b.background, smoothing: b.smoothing.clone(), locks: b.locks.clone(), ..Default::default() };
+                clear_texture_pattern_selection(app);
             }
             // Overwrite the preset the current brush was picked from (Photoshop's "update the
             // selected brush"): no new preset, the brush keeps its place in the list.
@@ -427,8 +435,12 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if let Some(pattern) = picked_pattern {
         // The command converts the selected library pattern to the brush engine's greyscale tile.
         // Run after the settings diff so all other Texture fields remain untouched by selection.
-        run_or_status(app, "brush.texturePattern", json!({ "pattern": pattern }));
-        app.ui.presets_ui.selected.insert("brush-texture-patterns".into(), pattern);
+        match app.run("brush.texturePattern", json!({ "pattern": pattern })) {
+            Ok(_) => {
+                app.ui.presets_ui.selected.insert("brush-texture-patterns".into(), pattern);
+            }
+            Err(e) => app.ui.status = e,
+        }
     }
 }
 

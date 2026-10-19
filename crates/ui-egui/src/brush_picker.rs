@@ -75,6 +75,7 @@ impl Pick {
     }
 }
 
+/// Stable egui identity shared by the picker surface and the canvas-popup dismissal logic.
 pub(crate) fn picker_id() -> egui::Id {
     egui::Id::new("canvas-brush-picker")
 }

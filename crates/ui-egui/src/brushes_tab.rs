@@ -26,11 +26,15 @@ use crate::{PhotocraftApp, icons, widgets};
 /// What a drag in the Brushes tab carries.
 #[derive(Clone, Debug, PartialEq)]
 pub enum BrushDrag {
+    /// A brush preset identified by its name.
     Preset(String),
+    /// A top-level brush group identified by its key.
     Group(String),
-    /// A nested folder of a group.
+    /// A nested folder, identified by its owning group and path.
     Folder {
+        /// Key of the top-level group containing the folder.
         group: String,
+        /// Folder path relative to that group; an empty path denotes the group itself.
         folder: Vec<String>,
     },
 }
@@ -86,9 +90,11 @@ pub enum Action {
 pub struct ListLayout {
     /// The scroll area's id and its height limit.
     pub id: &'static str,
+    /// Maximum height available to the scrolling list.
     pub max_height: f32,
     /// Width of a grid cell (its height is 6 points more) and the grid's left indent.
     pub cell: f32,
+    /// Horizontal inset applied to the grid and nested-folder contents.
     pub indent: f32,
     /// The Brush Preset picker's cards: a tip cell and a stroke cell on top and the name across
     /// the bottom (or, with only the tip and the name on, in the stroke's cell). Replaces the
@@ -106,6 +112,7 @@ fn responsive_list_layout(ui: &egui::Ui) -> ListLayout {
 
 /// The group key (`BrushPreset::group`) behind a panel label: ungrouped presets show as
 /// [`UNGROUPED`].
+/// Resolve a display label to the stable key used to address a brush group in commands and UI state.
 pub fn group_key(presets: &[BrushPreset], label: &str) -> String {
     if label == UNGROUPED && !presets.iter().any(|p| p.group == UNGROUPED) { String::new() } else { label.to_string() }
 }
@@ -115,6 +122,7 @@ pub const MAX_VIEW_DEPTH: usize = photocraft_engine::brush_preset_cmds::MAX_FOLD
 
 /// The collapse key of a nested folder of the group shown as `label` (`label` itself for the
 /// group).
+/// Build the stable UI-state key for a group/folder path, used to remember its collapsed state.
 pub fn folder_view_key(label: &str, folder: &[String]) -> String {
     if folder.is_empty() { label.to_string() } else { format!("{label}/{}", folder.join("/")) }
 }
@@ -125,6 +133,7 @@ pub type FolderNode<'a> = crate::preset_panels::HierarchyFolder<'a, BrushPreset>
 
 /// The tree of a group's presets (`items`, in library order): each folder appears where its first
 /// preset is, presets keep their order. Paths deeper than [`MAX_VIEW_DEPTH`] are cut there.
+/// Project brush presets into the shared ordered folder tree, bounded by the engine's depth limit.
 pub fn folder_tree<'a>(items: &[&'a BrushPreset]) -> Vec<Node<'a>> {
     crate::preset_panels::hierarchy_tree(items.iter().map(|p| (p.folder.as_slice(), *p)).collect(), MAX_VIEW_DEPTH)
 }
@@ -132,6 +141,8 @@ pub fn folder_tree<'a>(items: &[&'a BrushPreset]) -> Vec<Node<'a>> {
 /// Where a preset dropped onto `target` lands: (group, folder, index in that group after the
 /// dragged preset is taken out). `after` = dropped on the target's lower (list) or right (grid)
 /// half.
+/// Resolve a dragged preset and a target preset into the destination group, folder, and index.
+/// Returns `None` when either preset is missing or the target cannot identify a valid destination.
 pub fn drop_target(presets: &[BrushPreset], dragged: &str, target: &str, after: bool) -> Option<(String, Vec<String>, usize)> {
     let t = presets.iter().find(|p| p.name == target)?;
     let members: Vec<&str> = presets.iter().filter(|p| p.group == t.group).map(|p| p.name.as_str()).collect();
@@ -170,11 +181,17 @@ fn view_actions(st: &mut BrushesPanelState, acts: Vec<Action>) -> Vec<Action> {
 pub fn apply(app: &mut PhotocraftApp, acts: Vec<Action>) {
     for a in acts {
         match a {
-            Action::Select(name) => run_or_status(app, "tools.setBrush", json!({ "preset": name })),
+            Action::Select(name) => match app.run("tools.setBrush", json!({ "preset": name })) {
+                Ok(_) => crate::brush_panel::clear_texture_pattern_selection(app),
+                Err(e) => app.ui.status = e,
+            },
             Action::Choose(name) => {
                 // The double-click's first click already picked it.
                 if app.session.tools.current_preset.as_deref() != Some(name.as_str()) {
-                    run_or_status(app, "tools.setBrush", json!({ "preset": name }));
+                    match app.run("tools.setBrush", json!({ "preset": name })) {
+                        Ok(_) => crate::brush_panel::clear_texture_pattern_selection(app),
+                        Err(e) => app.ui.status = e,
+                    }
                 }
             }
             Action::ToggleGroup(_) | Action::BeginRename(_) => {}
@@ -568,6 +585,8 @@ const FOLDER_INDENT: f32 = 16.0;
 /// header's upper edge (`edge`) it lands before that folder, next to it (reordering when they are
 /// siblings); anywhere else it goes into that folder. `None` when the drop does nothing: onto
 /// itself, into one of its own folders, or into the folder it is already in.
+/// Translate a folder/group drop onto another folder/group edge into a reorder or move action.
+/// `edge` distinguishes dropping before/after the target from dropping into the target folder.
 pub fn folder_drop(src_group: &str, src_folder: &[String], group: &str, folder: &[String], edge: bool) -> Option<Action> {
     if src_group == group && folder.starts_with(src_folder) {
         return None;
@@ -810,6 +829,10 @@ fn rename_bar(ui: &mut egui::Ui, st: &mut BrushesPanelState, acts: &mut Vec<Acti
 /// above them while a rename is open. `current` is the selected preset's name: selection is by
 /// identity, so it survives edits and tells look-alike duplicates apart. Group toggles and renames
 /// update `st`; the returned actions are commands for [`apply`].
+/// Draw the specialised brush list/cards and return actions for the caller to apply.
+///
+/// The shared hierarchy helper supplies folder ordering and recursion; this renderer retains brush
+/// previews, card geometry, selection feedback, and brush-specific drag/rearrangement semantics.
 pub fn preset_list(ui: &mut egui::Ui, presets: &[BrushPreset], current: Option<&str>, st: &mut BrushesPanelState, layout: ListLayout) -> Vec<Action> {
     let mut acts = Vec::new();
     rename_bar(ui, st, &mut acts);

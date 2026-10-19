@@ -436,6 +436,8 @@ fn pattern_swatch(ui: &mut egui::Ui, tx: &paint::Texture) {
     ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
 }
 
+/// Draw Texture controls and report a picked library pattern without dispatching the command here.
+/// The caller commits the edited brush settings first, then applies the returned pattern selection.
 fn texture(
     ui: &mut egui::Ui,
     b: &mut BrushSettings,
@@ -452,6 +454,7 @@ fn texture(
             if !patterns.is_empty() {
                 let button = ui.button(tl!("Browse…"));
                 if let Some(id) = egui::Popup::menu(&button)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                     .show(|ui| {
                         ui.set_width(232.0);
                         crate::preset_panels::compact_pattern_browser(ui, patterns, groups, selected_pattern, "brush-texture-patterns", 140.0)
