@@ -452,25 +452,6 @@ fn texture(
         pattern_swatch(ui, tx);
         ui.add_space(8.0);
         ui.vertical(|ui| {
-            let mut style = match &tx.pattern {
-                Pattern::Procedural { style, .. } => Some(*style),
-                Pattern::Tile(_) | Pattern::Stored(_) => None,
-            };
-            let mut opts: Vec<(Option<PatternStyle>, &str)> = PATTERNS.iter().map(|(s, l)| (Some(*s), *l)).collect();
-            if style.is_none() {
-                opts.push((None, tl!("Custom")));
-            }
-            if widgets::dropdown(ui, "brush-pattern", &mut style, &opts, 110.0)
-                && let Some(s) = style
-            {
-                let size = match &tx.pattern {
-                    Pattern::Procedural { size, .. } => *size,
-                    Pattern::Tile(_) | Pattern::Stored(_) => 128,
-                };
-                tx.pattern = Pattern::Procedural { style: s, size, seed: 1 };
-            }
-            ui.add_space(4.0);
-            widgets::checkbox(ui, &mut tx.invert, tl!("Invert"));
             if !patterns.is_empty() {
                 let button = ui.button(tl!("Browse Patterns…"));
                 if let Some(id) = egui::Popup::menu(&button)
@@ -484,6 +465,8 @@ fn texture(
                     *picked_pattern = Some(id);
                 }
             }
+            ui.add_space(4.0);
+            widgets::checkbox(ui, &mut tx.invert, tl!("Invert"));
         });
     });
     ui.add_space(6.0);
