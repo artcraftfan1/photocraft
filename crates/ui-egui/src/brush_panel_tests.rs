@@ -78,7 +78,7 @@ fn brush_settings_texture_uses_compact_patterns_browser_and_keeps_panel_selectio
     h.state_mut().session.presets.pattern = global_selection.clone();
     h.run_steps(2);
 
-    h.get_by_label("Browse Patterns…").click();
+    h.get_by_label("Browse…").click();
     h.run_steps(2);
     h.get_by_label(&pattern_name).click();
     h.run_steps(4);

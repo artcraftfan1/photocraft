@@ -450,7 +450,7 @@ fn texture(
         ui.add_space(8.0);
         ui.vertical(|ui| {
             if !patterns.is_empty() {
-                let button = ui.button(tl!("Browse Patterns…"));
+                let button = ui.button(tl!("Browse…"));
                 if let Some(id) = egui::Popup::menu(&button)
                     .show(|ui| {
                         ui.set_width(232.0);
