@@ -808,42 +808,63 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
                 let rect = Rect::from_min_size(ui.min_rect().min, rect.size());
                 ui.allocate_rect(rect, Sense::hover());
                 self.group(ui, &group.panels, group.active, rect, true);
-                let corner = Rect::from_min_max((rect.max - vec2(12.0, 12.0)).max(rect.min), rect.max);
-                let response = ui.interact(corner, id.with("resize"), Sense::drag()).on_hover_cursor(egui::CursorIcon::ResizeNwSe);
-                self.register_interaction(ui.ctx(), response.id);
-                response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &self.style.resize_window_label));
-                if response.drag_started() {
-                    response.request_focus();
-                }
-                let mut delta = if response.dragged() { ui.input(|i| i.pointer.delta()) } else { Vec2::ZERO };
-                if response.has_focus() {
-                    ui.memory_mut(|memory| {
-                        memory.set_focus_lock_filter(
-                            response.id,
-                            egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() },
-                        )
-                    });
-                    ui.input_mut(|input| {
-                        if input.consume_key(egui::Modifiers::NONE, Key::ArrowLeft) {
-                            delta.x -= 8.0;
-                        }
-                        if input.consume_key(egui::Modifiers::NONE, Key::ArrowRight) {
-                            delta.x += 8.0;
-                        }
-                        if input.consume_key(egui::Modifiers::NONE, Key::ArrowUp) {
-                            delta.y -= 8.0;
-                        }
-                        if input.consume_key(egui::Modifiers::NONE, Key::ArrowDown) {
-                            delta.y += 8.0;
-                        }
-                    });
-                }
-                if response.enabled() && delta != Vec2::ZERO {
-                    let size = (rect.size() + delta).max(limits.min.max(vec2(40.0, self.style.tab_height + 20.0))).min(limits.max).min(screen.size());
-                    self.output.actions.push(Action::MoveFloating { panel: first.clone(), rect: [rect.left(), rect.top(), size.x, size.y] });
-                }
-                if response.hovered() || response.dragged() || response.has_focus() {
-                    ui.painter().line_segment([corner.left_bottom(), corner.right_top()], Stroke::new(2.0, self.style.accent));
+                let edge = 6.0;
+                let corner_size = 12.0;
+                let left_bottom = Rect::from_min_max(pos2(rect.left(), rect.bottom() - corner_size), pos2(rect.left() + corner_size, rect.bottom()));
+                let bottom_left = Rect::from_min_max(pos2(rect.left() + corner_size, rect.bottom() - edge), pos2(rect.right() - corner_size, rect.bottom()));
+                let bottom_right = Rect::from_min_max(pos2(rect.right() - corner_size, rect.bottom() - corner_size), rect.max);
+                let bottom_right_edge = Rect::from_min_max(pos2(rect.right() - edge, rect.top() + corner_size), pos2(rect.right(), rect.bottom() - corner_size));
+                let left_edge = Rect::from_min_max(pos2(rect.left(), rect.top() + corner_size), pos2(rect.left() + edge, rect.bottom() - corner_size));
+                // Each handle names the sides it moves. Corners take precedence over edges so
+                // their diagonal cursor and two-axis drag remain unambiguous.
+                let handles = [
+                    ("resize-left", left_edge, egui::CursorIcon::ResizeHorizontal, true, false, false),
+                    ("resize-left-bottom", left_bottom, egui::CursorIcon::ResizeNeSw, true, false, true),
+                    ("resize-bottom", bottom_left, egui::CursorIcon::ResizeVertical, false, false, true),
+                    ("resize-bottom-right", bottom_right, egui::CursorIcon::ResizeNwSe, false, true, true),
+                    ("resize-right", bottom_right_edge, egui::CursorIcon::ResizeHorizontal, false, true, false),
+                ];
+                for (handle_id, handle_rect, cursor, moves_left, moves_right, moves_bottom) in handles {
+                    let response = ui.interact(handle_rect, id.with(handle_id), Sense::drag()).on_hover_cursor(cursor);
+                    self.register_interaction(ui.ctx(), response.id);
+                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &self.style.resize_window_label));
+                    if response.drag_started() {
+                        response.request_focus();
+                    }
+                    let mut delta = if response.dragged() { ui.input(|i| i.pointer.delta()) } else { Vec2::ZERO };
+                    if handle_id == "resize-bottom-right" && response.has_focus() {
+                        ui.memory_mut(|memory| {
+                            memory.set_focus_lock_filter(
+                                response.id,
+                                egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() },
+                            )
+                        });
+                        ui.input_mut(|input| {
+                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowLeft) { delta.x -= 8.0; }
+                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowRight) { delta.x += 8.0; }
+                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowUp) { delta.y -= 8.0; }
+                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowDown) { delta.y += 8.0; }
+                        });
+                    }
+                    if response.enabled() && delta != Vec2::ZERO {
+                        let min = limits.min.max(vec2(40.0, self.style.tab_height + 20.0));
+                        let max = limits.max.min(screen.size());
+                        let width = (rect.width() + if moves_left { -delta.x } else if moves_right { delta.x } else { 0.0 }).clamp(min.x, max.x);
+                        let height = (rect.height() + if moves_bottom { delta.y } else { 0.0 }).clamp(min.y, max.y);
+                        let x = if moves_left { rect.right() - width } else { rect.left() };
+                        let resized = clamp_float(Rect::from_min_size(pos2(x, rect.top()), vec2(width, height)), screen);
+                        self.output.actions.push(Action::MoveFloating { panel: first.clone(), rect: [resized.left(), resized.top(), resized.width(), resized.height()] });
+                    }
+                    if response.hovered() || response.dragged() || response.has_focus() {
+                        let (a, b) = match handle_id {
+                            "resize-left" => (handle_rect.left_top(), handle_rect.left_bottom()),
+                            "resize-left-bottom" => (handle_rect.left_top(), handle_rect.right_bottom()),
+                            "resize-bottom" => (handle_rect.left_bottom(), handle_rect.right_bottom()),
+                            "resize-bottom-right" => (handle_rect.left_bottom(), handle_rect.right_top()),
+                            _ => (handle_rect.right_top(), handle_rect.right_bottom()),
+                        };
+                        ui.painter().line_segment([a, b], Stroke::new(2.0, self.style.accent));
+                    }
                 }
             });
         }
