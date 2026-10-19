@@ -890,8 +890,24 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
     fn panel_menu(&mut self, ui: &mut egui::Ui, id: &String) {
         panel_menu(self.app, ui, id);
     }
+    // Every floating group uses the same title-bar chrome, regardless of panel type.
+    fn has_floating_title(&self, _panels: &[String], _active: &String) -> bool {
+        true
+    }
     fn group_header_width(&self, _panels: &[String], _active: &String, _floating: bool) -> f32 {
         28.0
+    }
+    fn floating_title_header(&mut self, ui: &mut egui::Ui, _panels: &[String], active: &String) {
+        let locked = self.app.session.prefs().workspace_locked;
+        ui.spacing_mut().button_padding = egui::vec2(0.0, 0.0);
+        ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+        ui.spacing_mut().interact_size = egui::vec2(18.0, 22.0);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let response = ui.add_enabled_ui(!locked, |ui| ui.add_sized(egui::vec2(18.0, 22.0), egui::Button::new("×"))).inner;
+            if response.on_hover_text(tl!("Close Panel")).clicked() {
+                self.commands.push(("window.panel.group", json!({"panel":active,"operation":"close"})));
+            }
+        });
     }
     fn group_header(&mut self, ui: &mut egui::Ui, panels: &[String], active: &String, floating: bool) {
         if !floating {
