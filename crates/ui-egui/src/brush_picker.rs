@@ -352,15 +352,20 @@ pub fn clamp_size(size: [f32; 2], screen: egui::Vec2) -> egui::Vec2 {
 pub fn resize_grip(ui: &mut egui::Ui, frame: egui::Rect, content: egui::Vec2) -> Option<egui::Vec2> {
     let t = Tokens::get(ui.ctx());
     let grip = egui::Rect::from_min_size(frame.right_bottom() - vec2(16.0, 16.0), vec2(16.0, 16.0));
-    let resp = ui.interact(grip, ui.id().with("brush-picker-resize"), egui::Sense::drag());
+    // The gear menu can extend over the bottom-right corner. Give the grip its own top interaction
+    // layer so it remains draggable there and can dismiss that menu, rather than letting the popup
+    // intercept the press.
+    let layer = egui::LayerId::new(egui::Order::Tooltip, ui.id().with("brush-picker-resize-layer"));
+    let grip_ui = ui.new_child(egui::UiBuilder::new().layer_id(layer).max_rect(grip));
+    let resp = grip_ui.interact(grip, ui.id().with("brush-picker-resize"), egui::Sense::drag());
     dismiss_popup(&resp);
     let corner = grip.right_bottom() - vec2(3.0, 3.0);
     for i in 0..3 {
         let o = i as f32 * 4.0;
-        ui.painter().line_segment([corner - vec2(o, 0.0), corner - vec2(0.0, o)], Stroke::new(1.0, t.text_faint));
+        grip_ui.painter().line_segment([corner - vec2(o, 0.0), corner - vec2(0.0, o)], Stroke::new(1.0, t.text_faint));
     }
     if resp.hovered() || resp.dragged() {
-        ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
+        grip_ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
     }
     // The size this drag started from, kept while the button is held.
     let start_id = resp.id.with("start");
@@ -369,8 +374,8 @@ pub fn resize_grip(ui: &mut egui::Ui, frame: egui::Rect, content: egui::Vec2) ->
     }
     resp.dragged().then(|| {
         let min = egui::vec2(MIN_SIZE[0], MIN_SIZE[1]);
-        let max = (ui.ctx().content_rect().size() - vec2(40.0, 40.0)).max(min);
-        let start: egui::Vec2 = ui.ctx().data_mut(|d| d.get_temp(start_id)).unwrap_or(content);
+        let max = (grip_ui.ctx().content_rect().size() - vec2(40.0, 40.0)).max(min);
+        let start: egui::Vec2 = grip_ui.ctx().data_mut(|d| d.get_temp(start_id)).unwrap_or(content);
         (start + resp.total_drag_delta().unwrap_or_default()).clamp(min, max)
     })
 }
