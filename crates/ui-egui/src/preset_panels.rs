@@ -42,6 +42,12 @@ pub struct PresetUi {
     /// a list follow it in library order. Saved with the UI state.
     #[serde(rename = "groupOrder", alias = "group_order", deserialize_with = "lenient_group_order", skip_serializing_if = "BTreeMap::is_empty")]
     pub group_order: BTreeMap<String, Vec<String>>,
+    /// Visibility of the placeholder search row per picker. Missing entries default to visible.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub search_visible: BTreeMap<String, bool>,
+    /// Visibility of the placeholder recent-items strip per picker. Missing entries default to visible.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub recents_visible: BTreeMap<String, bool>,
     /// In-place rename: (panel, preset or "group:<name>", text).
     #[serde(skip)]
     pub renaming: Option<(String, String, String)>,
@@ -61,6 +67,14 @@ fn lenient_group_order<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMa
 }
 
 impl PresetUi {
+    pub(crate) fn shows_search(&self, panel: &str) -> bool {
+        self.search_visible.get(panel).copied().unwrap_or(true)
+    }
+
+    pub(crate) fn shows_recents(&self, panel: &str) -> bool {
+        self.recents_visible.get(panel).copied().unwrap_or(true)
+    }
+
     pub fn shape(&self) -> &str {
         if self.custom_shape.is_empty() { tl!("Heart") } else { &self.custom_shape }
     }
@@ -265,7 +279,7 @@ pub(crate) fn pattern_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui, selecte
         .show(|ui| {
             // Preserve six swatches across, with a dedicated settings strip beside the browser.
             ui.set_width(6.0 * (SWATCH + 4.0) + 28.0);
-            compact_pattern_browser(ui, pats, &groups, selected, "compact-pattern-picker", 240.0)
+            compact_pattern_browser(ui, pats, &groups, selected, "compact-pattern-picker", 240.0, false)
         })
         .map(|r| r.inner)
         .flatten();
@@ -282,6 +296,7 @@ pub(crate) fn compact_pattern_browser(
     selected: &str,
     panel: &'static str,
     max_h: f32,
+    show_placeholder_rows: bool,
 ) -> Option<String> {
     let ctx = ui.ctx().clone();
     let t = Tokens::get(&ctx);
@@ -298,6 +313,9 @@ pub(crate) fn compact_pattern_browser(
     });
     state.selected.insert(panel.into(), selected.to_string());
     state.sizes.entry(panel.into()).or_insert(40.0);
+    if show_placeholder_rows {
+        draw_placeholder_rows(ui, &mut state, panel, true);
+    }
     let browser_h = max_h.min(ui.available_height());
     let parent_menu_id = egui::containers::menu::MenuState::from_ui(ui, |_, stack| stack.id);
     let close_pending_id = egui::Id::new(("compact-pattern-submenu-close", panel));
@@ -376,6 +394,13 @@ pub(crate) fn compact_pattern_browser(
                             // close the picker, and clearing MenuState now makes egui misclassify
                             // this selection click as outside the parent popup.
                             ui.ctx().data_mut(|data| data.insert_temp(close_pending_id, true));
+                        }
+                    }
+                    if show_placeholder_rows {
+                        ui.separator();
+                        let mut recents_visible = state.shows_recents(panel);
+                        if ui.checkbox(&mut recents_visible, tl!("Recent Strip")).changed() {
+                            state.recents_visible.insert(panel.into(), recents_visible);
                         }
                     }
                 });
@@ -865,6 +890,8 @@ pub(crate) struct ShellOptions<'a> {
     pub(crate) footer: Option<FooterOptions<'a>>,
     /// Consumer-owned footer renderer plus the height it reserves in the browser viewport.
     pub(crate) custom_footer: Option<CustomFooter<'a>>,
+    /// Show the placeholder search/recent rows and their hamburger visibility menu.
+    pub(crate) placeholder_controls: bool,
 }
 
 type CustomFooter<'a> = (&'a mut dyn FnMut(&mut egui::Ui), f32);
@@ -1108,6 +1135,9 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
 /// the responsibility of the caller that consumes the returned events.
 pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut BrowserAdapter<'_>, mut shell: ShellOptions<'_>) -> Vec<Ev> {
     let panel = adapter.panel.to_string();
+    if shell.placeholder_controls {
+        draw_placeholder_rows(ui, st, &panel, false);
+    }
     shell_controls(ui, &mut shell);
 
     let footer_id = egui::Id::new(("preset-footer", panel.as_str()));
@@ -1153,6 +1183,41 @@ pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut B
         }
     }
     events
+}
+
+/// Draw the search/recent placeholders and their independent visibility toggles. Compact popups use
+/// the same rows but keep the toggles in their existing gear submenu.
+fn draw_placeholder_rows(ui: &mut egui::Ui, st: &mut PresetUi, panel: &str, compact: bool) {
+    let ctx = ui.ctx().clone();
+    // The compact popup browser does not support search; only the recent-strip placeholder is
+    // available there. The standard picker gets its controls from its existing panel menu.
+    let search_visible = !compact && st.shows_search(panel);
+    let recents_visible = st.shows_recents(panel);
+    let t = Tokens::get(&ctx);
+    let width = (ui.available_width() - if compact { 28.0 } else { 0.0 }).max(0.0);
+    if search_visible {
+        let (rect, _) = ui.allocate_exact_size(vec2(width, 22.0), Sense::hover());
+        ui.painter().rect_filled(rect, 3.0, t.field);
+        ui.painter().rect_stroke(rect, 3.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
+        crate::icons::paint(ui, Rect::from_min_size(rect.min + vec2(6.0, 3.0), vec2(16.0, 16.0)), "search", 14.0, t.text_faint);
+        ui.painter().text(rect.min + vec2(27.0, rect.height() / 2.0), Align2::LEFT_CENTER, tl!("Search"), FontId::proportional(11.5), t.text_faint);
+        ui.add_space(3.0);
+    }
+    if recents_visible {
+        let (rect, _) = ui.allocate_exact_size(vec2(width, 16.0), Sense::hover());
+        ui.painter().rect_filled(rect, 2.0, t.field);
+        ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
+        ui.add_space(4.0);
+    }
+}
+
+/// Recent-strip placeholder for pickers whose search row is already functional.
+pub(crate) fn recent_strip_placeholder(ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
+    ui.painter().rect_filled(rect, 2.0, t.field);
+    ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
+    ui.add_space(4.0);
 }
 
 /// Shared shell layout for consumers with a specialised browser renderer. The shell owns the
@@ -1296,8 +1361,12 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             paint_gradient(ui, r, &stops);
         },
     };
-    let events =
-        picker_shell(ui, &mut st, &mut adapter, ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new gradient"))), ..Default::default() });
+    let events = picker_shell(
+        ui,
+        &mut st,
+        &mut adapter,
+        ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new gradient"))), placeholder_controls: true, ..Default::default() },
+    );
     app.ui.presets_ui = st;
     for e in events {
         match &e {
@@ -1345,7 +1414,7 @@ pub fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui,
         &mut st,
         &mut adapter,
-        ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new pattern from the selection"))), ..Default::default() },
+        ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new pattern from the selection"))), placeholder_controls: true, ..Default::default() },
     );
     app.ui.presets_ui = st;
     for e in events {
@@ -2191,7 +2260,7 @@ mod tests {
         let (id, name) = (first.key.clone(), first.name.clone());
         let mut h = Harness::builder().with_size(vec2(320.0, 240.0)).build_ui_state(
             move |ui, picked: &mut Option<String>| {
-                if let Some(id) = compact_pattern_browser(ui, &patterns, &groups, "", "compact-test", 180.0) {
+                if let Some(id) = compact_pattern_browser(ui, &patterns, &groups, "", "compact-test", 180.0, false) {
                     *picked = Some(id);
                 }
             },
@@ -2217,7 +2286,7 @@ mod tests {
         let state_id = egui::Id::new(("compact-pattern-browser", panel));
         let mut h = Harness::builder().with_size(vec2(320.0, 240.0)).build_ui_state(
             move |ui, _picked: &mut Option<String>| {
-                let _ = compact_pattern_browser(ui, &patterns, &groups, "", panel, 180.0);
+                let _ = compact_pattern_browser(ui, &patterns, &groups, "", panel, 180.0, false);
             },
             None::<String>,
         );

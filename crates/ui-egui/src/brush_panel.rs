@@ -104,6 +104,10 @@ pub struct BrushesPanelState {
     /// width all the way — the text holds its 1.0 size, and at or below the compact threshold
     /// the tips drop the size number under them and take their cell whole.
     pub scale: f32,
+    /// Show the Brush Preset picker's recent-items placeholder strip.
+    pub picker_recents_visible: bool,
+    /// Show the Brush Preset picker's functional search field.
+    pub picker_search_visible: bool,
 }
 
 impl Default for BrushesPanelState {
@@ -117,6 +121,8 @@ impl Default for BrushesPanelState {
             show_stroke: true,
             show_tip: true,
             scale: 1.0,
+            picker_recents_visible: true,
+            picker_search_visible: true,
         }
     }
 }

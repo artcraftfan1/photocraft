@@ -472,6 +472,7 @@ fn texture(
                                 selected_pattern,
                                 "brush-texture-patterns",
                                 browser_h,
+                                true,
                             )
                         })
                 })

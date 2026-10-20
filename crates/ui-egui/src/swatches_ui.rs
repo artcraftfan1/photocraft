@@ -85,8 +85,12 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.painter().rect_filled(r, CornerRadius::ZERO, c);
         },
     };
-    let events =
-        picker_shell(ui, &mut st, &mut adapter, ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new swatch"))), ..Default::default() });
+    let events = picker_shell(
+        ui,
+        &mut st,
+        &mut adapter,
+        ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new swatch"))), placeholder_controls: true, ..Default::default() },
+    );
     app.ui.presets_ui = st;
     let mods = ui.input(|i| i.modifiers);
     for e in events {

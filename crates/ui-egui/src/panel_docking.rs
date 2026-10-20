@@ -847,12 +847,24 @@ struct PanelContent<'a> {
 
 fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str) {
     match panel {
+        "gradients" | "patterns" | "swatches" => {
+            let state = &mut app.ui.presets_ui;
+            let mut search_visible = state.shows_search(panel);
+            if ui.checkbox(&mut search_visible, tl!("Search Bar")).changed() {
+                state.search_visible.insert(panel.into(), search_visible);
+            }
+            let mut recents_visible = state.shows_recents(panel);
+            if ui.checkbox(&mut recents_visible, tl!("Recent Strip")).changed() {
+                state.recents_visible.insert(panel.into(), recents_visible);
+            }
+            ui.separator();
+            if panel == "swatches" {
+                crate::swatches_ui::panel_menu(app, ui);
+                ui.separator();
+            }
+        }
         "layers" => {
             crate::layer_row_ui::panel_menu(app, ui);
-            ui.separator();
-        }
-        "swatches" => {
-            crate::swatches_ui::panel_menu(app, ui);
             ui.separator();
         }
         "brushSettings" | "brush_settings" => {
@@ -923,7 +935,8 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
         }
         let collapsed = panels.iter().all(|id| self.collapsed.contains(id));
         let locked = self.app.session.prefs().workspace_locked;
-        let resp = crate::icons::button(ui, "ellipsis", ui.available_height().min(28.0), false, tl!("Panel menu"));
+        let menu_icon = if matches!(active.as_str(), "gradients" | "patterns" | "swatches") { "menu" } else { "ellipsis" };
+        let resp = crate::icons::button(ui, menu_icon, ui.available_height().min(28.0), false, tl!("Panel menu"));
         egui::Popup::menu(&resp).show(|ui| {
             ui.set_min_width(180.0);
             panel_menu(self.app, ui, active);

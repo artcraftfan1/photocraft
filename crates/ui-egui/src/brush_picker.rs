@@ -282,9 +282,14 @@ pub fn body(
             );
         });
     };
+    let mut recents = |ui: &mut egui::Ui| crate::preset_panels::recent_strip_placeholder(ui);
     let mut footer = |ui: &mut egui::Ui| {
         ui.add_space((size.y - (ui.cursor().min.y - top) - SLIDER_H).max(FOOTER_GAP));
         scale_slider(ui, &mut state.borrow_mut());
+    };
+    let (show_search, show_recents) = {
+        let state = state.borrow();
+        (state.picker_search_visible, state.picker_recents_visible)
     };
 
     let list_picks = crate::preset_panels::picker_shell_custom(
@@ -292,7 +297,8 @@ pub fn body(
         (size.y - controls_h).max(0.0),
         crate::preset_panels::ShellOptions {
             panel_menu: Some(&mut menu),
-            search: Some(&mut search),
+            search: if show_search { Some(&mut search) } else { None },
+            recents: if show_recents { Some(&mut recents) } else { None },
             custom_footer: Some((&mut footer, FOOTER_H)),
             ..Default::default()
         },
@@ -383,7 +389,7 @@ pub fn resize_grip(ui: &mut egui::Ui, frame: egui::Rect, content: egui::Vec2) ->
 /// The gear: Photoshop's picker menu. A new preset, rename or delete the current one, the list's
 /// view, and Import Brushes.
 fn gear_menu(ui: &mut egui::Ui, current: Option<&str>, presets: &[BrushPreset], st: &mut BrushesPanelState, picks: &mut Vec<Pick>) {
-    let gear = named(icons::button(ui, "settings", 24.0, false, tl!("Brush Preset Options")), "Brush Preset Options");
+    let gear = named(icons::button(ui, "menu", 24.0, false, tl!("Brush Preset Options")), "Brush Preset Options");
     // The menu hangs 30 pt right of the gear, off the button's own edge; the align fallbacks still
     // keep it on screen near the window's edge.
     let anchor = match egui::PopupAnchor::from(&gear) {
@@ -421,6 +427,9 @@ fn gear_menu(ui: &mut egui::Ui, current: Option<&str>, presets: &[BrushPreset], 
                 *flag = true;
             }
         }
+        ui.separator();
+        ui.checkbox(&mut st.picker_search_visible, tl!("Search Bar"));
+        ui.checkbox(&mut st.picker_recents_visible, tl!("Recent Strip"));
         ui.separator();
         if ui.button(tl!("Import Brushes…")).clicked() {
             picks.push(Pick::Import);
