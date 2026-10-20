@@ -267,8 +267,7 @@ pub(crate) fn pattern_picker(app: &PhotocraftApp, ui: &mut egui::Ui, selected: &
             ui.set_width(6.0 * (SWATCH + 4.0));
             compact_pattern_browser(ui, pats, &groups, selected, "compact-pattern-picker", 240.0)
         })
-        .map(|r| r.inner)
-        .flatten();
+        .and_then(|r| r.inner);
     picked.filter(|id| id != selected)
 }
 
@@ -434,14 +433,18 @@ pub(crate) fn hierarchy_tree<'a, T>(items: Vec<(&'a [String], &'a T)>, max_depth
 ///
 /// Adjacent presets are batched into one `draw_items` call and flushed before each folder header;
 /// children are traversed only when `is_open` returns true and `max_depth` has not been reached.
-pub(crate) fn draw_hierarchy<'a, T>(
+type HierarchyOpen<'a, 'b, T> = dyn FnMut(&HierarchyFolder<'a, T>) -> bool + 'b;
+type HierarchyDrawFolder<'a, 'b, T> = dyn FnMut(&mut egui::Ui, &HierarchyFolder<'a, T>, bool, usize) + 'b;
+type HierarchyDrawItems<'a, 'b, T> = dyn FnMut(&mut egui::Ui, &[&'a T], usize) + 'b;
+
+pub(crate) fn draw_hierarchy<'a, 'b, T>(
     ui: &mut egui::Ui,
     nodes: &[HierarchyNode<'a, T>],
     depth: usize,
     max_depth: usize,
-    is_open: &mut dyn FnMut(&HierarchyFolder<'a, T>) -> bool,
-    draw_folder: &mut dyn FnMut(&mut egui::Ui, &HierarchyFolder<'a, T>, bool, usize),
-    draw_items: &mut dyn FnMut(&mut egui::Ui, &[&'a T], usize),
+    is_open: &mut HierarchyOpen<'a, 'b, T>,
+    draw_folder: &mut HierarchyDrawFolder<'a, 'b, T>,
+    draw_items: &mut HierarchyDrawItems<'a, 'b, T>,
 ) {
     let mut run: Vec<&'a T> = Vec::new();
     let flush = |ui: &mut egui::Ui, run: &mut Vec<&'a T>, draw_items: &mut dyn FnMut(&mut egui::Ui, &[&'a T], usize)| {
@@ -492,7 +495,8 @@ fn hierarchy_level<'a, T>(items: Vec<HierarchyEntry<'a, T>>, prefix: &[String]) 
             },
         }
     }
-    let mut folders: Vec<Option<(&String, Vec<HierarchyEntry<'a, T>>)>> = folders.into_iter().map(Some).collect();
+    type NamedFolderEntries<'a, T> = (&'a String, Vec<HierarchyEntry<'a, T>>);
+    let mut folders: Vec<Option<NamedFolderEntries<'a, T>>> = folders.into_iter().map(Some).collect();
     slots
         .into_iter()
         .filter_map(|slot| match slot {
@@ -730,8 +734,10 @@ pub(crate) struct ShellOptions<'a> {
     /// Standard shared footer controls, when the picker needs them.
     pub(crate) footer: Option<FooterOptions<'a>>,
     /// Consumer-owned footer renderer plus the height it reserves in the browser viewport.
-    pub(crate) custom_footer: Option<(&'a mut dyn FnMut(&mut egui::Ui), f32)>,
+    pub(crate) custom_footer: Option<CustomFooter<'a>>,
 }
+
+type CustomFooter<'a> = (&'a mut dyn FnMut(&mut egui::Ui), f32);
 
 /// Space between the cells of a preset grid, and the grid's inset from the panel's left edge.
 const GRID_GAP: f32 = 4.0;

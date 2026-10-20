@@ -389,10 +389,12 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             section,
                             &app.session.tools.presets,
                             app.session.tools.current_preset.as_deref(),
-                            patterns,
-                            &pattern_groups,
-                            &selected_pattern,
-                            &mut picked_pattern,
+                            crate::brush_sections::PatternSectionPatterns {
+                                patterns,
+                                groups: &pattern_groups,
+                                selected_pattern: &selected_pattern,
+                                picked_pattern: &mut picked_pattern,
+                            },
                         )
                     } else {
                         section_body(ui, &mut b, section, &app.session.tools.presets, app.session.tools.current_preset.as_deref())
