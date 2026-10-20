@@ -244,7 +244,7 @@ fn pattern_texture(ctx: &egui::Context, pat: &photocraft_doc::Pattern) -> Textur
 /// Photoshop's pattern picker: a swatch of the library pattern `selected` (an id) that opens a grid
 /// of every library pattern's swatch, each named in its tooltip. Returns the id of a newly picked
 /// pattern.
-pub(crate) fn pattern_picker(app: &PhotocraftApp, ui: &mut egui::Ui, selected: &str) -> Option<String> {
+pub(crate) fn pattern_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui, selected: &str) -> Option<String> {
     const SWATCH: f32 = 40.0;
     let t = Tokens::get(ui.ctx());
     let ctx = ui.ctx().clone();
@@ -267,12 +267,14 @@ pub(crate) fn pattern_picker(app: &PhotocraftApp, ui: &mut egui::Ui, selected: &
             ui.set_width(6.0 * (SWATCH + 4.0) + 28.0);
             compact_pattern_browser(ui, pats, &groups, selected, "compact-pattern-picker", 240.0)
         })
-        .and_then(|r| r.inner);
+        .map(|r| r.inner)
+        .flatten();
+    apply_compact_pattern_actions(app, "compact-pattern-picker", take_compact_pattern_actions(&ctx, "compact-pattern-picker"));
     picked.filter(|id| id != selected)
 }
 
 /// The Patterns library rendered by the shared browser without the standard panel shell. Used by
-/// compact pickers (Brush Settings and fill dialogs) that need selection but no footer or menus.
+/// compact pickers (Brush Settings and fill dialogs) that need selection and context actions.
 pub(crate) fn compact_pattern_browser(
     ui: &mut egui::Ui,
     pats: &[photocraft_doc::Pattern],
@@ -311,8 +313,8 @@ pub(crate) fn compact_pattern_browser(
         groups,
         options: BrowserOptions { canvas: Rect::NOTHING, max_h, flush: false },
         capabilities: BrowserCapabilities { item_drag: false, group_drag: false, selection: true, activation: true },
-        item_context_menu: None,
-        group_context_menu: None,
+        item_context_menu: Some(compact_item_context_menu),
+        group_context_menu: Some(compact_group_context_menu),
         paint_group: None,
         paint_item: &mut |ui, r, gi, ii| {
             if let Some(p) = groups.get(gi).and_then(|g| g.items.get(ii)).and_then(|i| pats.iter().find(|p| p.id == i.key)) {
@@ -328,16 +330,20 @@ pub(crate) fn compact_pattern_browser(
         },
     };
     let mut picked = None;
+    let mut action_events = Vec::new();
     ui.horizontal(|ui| {
         let menu_width = 24.0;
         let browser_width = (ui.available_width() - menu_width - ui.spacing().item_spacing.x).max(0.0);
         ui.allocate_ui_with_layout(vec2(browser_width, browser_h), egui::Layout::top_down(egui::Align::Min), |browser_ui| {
             for event in browser(browser_ui, &mut state, &mut adapter, browser_h) {
-                if let Ev::Select(id) | Ev::Activate(id) = event {
-                    if id != selected {
-                        picked = Some(id);
+                match event {
+                    Ev::Select(id) | Ev::Activate(id) => {
+                        if id != selected {
+                            picked = Some(id);
+                        }
+                        browser_ui.close();
                     }
-                    browser_ui.close();
+                    action => action_events.push(action),
                 }
             }
         });
@@ -377,7 +383,20 @@ pub(crate) fn compact_pattern_browser(
         });
     });
     ui.data_mut(|d| d.insert_temp(state_id, state));
+    ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new(("compact-pattern-actions", panel)), action_events));
     picked
+}
+
+/// Take generic actions emitted by the most recently drawn compact pattern browser instance.
+pub(crate) fn take_compact_pattern_actions(ctx: &egui::Context, panel: &'static str) -> Vec<Ev> {
+    ctx.data_mut(|data| data.remove_temp(egui::Id::new(("compact-pattern-actions", panel))).unwrap_or_default())
+}
+
+/// Dispatch compact-browser actions through the same pattern command handler as the full Patterns panel.
+pub(crate) fn apply_compact_pattern_actions(app: &mut PhotocraftApp, panel: &'static str, events: Vec<Ev>) {
+    for event in events {
+        generic(app, panel, "pattern.presets", &event, json!({}));
+    }
 }
 
 pub(crate) fn style_texture(app: &PhotocraftApp, ctx: &egui::Context, st: &photocraft_engine::presets::styles::StylePreset) -> TextureHandle {
@@ -563,6 +582,7 @@ fn hierarchy_level<'a, T>(items: Vec<HierarchyEntry<'a, T>>, prefix: &[String]) 
 }
 
 /// Generic browser interactions; each asset consumer translates these into its own commands.
+#[derive(Clone)]
 pub(crate) enum Ev {
     /// Select an item without activating or dismissing its picker.
     Select(String),
@@ -751,6 +771,66 @@ pub(crate) fn context_menu_target(resp: egui::Response, menu: impl FnOnce(&mut e
     let _ = resp.context_menu(menu);
 }
 
+/// Show context actions for compact-picker targets at the pointer position.
+fn compact_context_menu_target(ui: &mut egui::Ui, resp: egui::Response, menu: impl FnOnce(&mut egui::Ui)) {
+    // Compact pickers live inside an egui menu popup. A separate context popup is treated as
+    // outside that parent and dismisses it. Use the same nested-SubMenu mechanism as the gear.
+    let submenu_id = egui::containers::menu::SubMenu::id_from_widget_id(resp.id);
+    // Do not set `open_item` before calling `SubMenu::show`: MenuState validates that item
+    // against the previous frame's visible submenu, so a newly requested submenu gets cleared.
+    // Showing it on the right-click frame lets SubMenu register itself normally and persist.
+    let right_clicked = resp.secondary_clicked();
+    let open = egui::containers::menu::MenuState::from_ui(ui, |state, _| state.open_item == Some(submenu_id));
+    if right_clicked || open {
+        egui::containers::menu::SubMenu::new().show(ui, &resp, menu);
+    }
+}
+
+fn compact_context_menu_close_later(ui: &egui::Ui, panel: &str) {
+    ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new(("compact-pattern-submenu-close", panel)), true));
+}
+
+fn compact_item_context_menu(
+    ui: &mut egui::Ui,
+    st: &mut PresetUi,
+    panel: &str,
+    item: &ItemView,
+    group: &GroupView,
+    group_names: &[String],
+    ev: &mut Vec<Ev>,
+) {
+    if ui.button(tl!("Rename…")).clicked() {
+        st.renaming = Some((panel.to_string(), item.key.clone(), item.name.clone()));
+        compact_context_menu_close_later(ui, panel);
+    } else if ui.button(tl!("Delete")).clicked() {
+        ev.push(Ev::Delete(item.key.clone()));
+        compact_context_menu_close_later(ui, panel);
+    } else {
+        let mut move_to = None;
+        ui.menu_button(tl!("Move to"), |ui| {
+            for name in group_names.iter().filter(|name| name.as_str() != group.name) {
+                if ui.button(name).clicked() {
+                    move_to = Some(name.clone());
+                }
+            }
+        });
+        if let Some(name) = move_to {
+            ev.push(Ev::Move(item.key.clone(), name));
+            compact_context_menu_close_later(ui, panel);
+        }
+    }
+}
+
+fn compact_group_context_menu(ui: &mut egui::Ui, st: &mut PresetUi, panel: &str, group: &GroupView, ev: &mut Vec<Ev>) {
+    if ui.button(tl!("Rename Group…")).clicked() {
+        st.renaming = Some((panel.to_string(), format!("group:{}", group.name), group.name.clone()));
+        compact_context_menu_close_later(ui, panel);
+    } else if ui.button(tl!("Delete Group")).clicked() {
+        ev.push(Ev::DeleteGroup(group.name.clone()));
+        compact_context_menu_close_later(ui, panel);
+    }
+}
+
 /// Optional standard-picker footer controls. The shell owns their placement; the browser only
 /// emits the corresponding generic events, leaving each consumer to dispatch asset-specific work.
 pub(crate) struct FooterOptions<'a> {
@@ -885,7 +965,11 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                     }
                 }
                 if let Some(menu) = group_context_menu {
-                    context_menu_target(hresp.clone(), |ui| menu(ui, st, panel, g, &mut ev));
+                    if panel.starts_with("compact-") || panel == "brush-texture-patterns" {
+                        compact_context_menu_target(ui, hresp.clone(), |ui| menu(ui, st, panel, g, &mut ev));
+                    } else {
+                        context_menu_target(hresp.clone(), |ui| menu(ui, st, panel, g, &mut ev));
+                    }
                 }
                 if capabilities.group_drag
                     && hresp.dragged()
@@ -972,7 +1056,11 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                         dropped = Some((it.key.clone(), pp));
                     }
                     if let Some(menu) = item_context_menu {
-                        context_menu_target(resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
+                        if panel.starts_with("compact-") || panel == "brush-texture-patterns" {
+                            compact_context_menu_target(ui, resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
+                        } else {
+                            context_menu_target(resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
+                        }
                     }
                 }
             }

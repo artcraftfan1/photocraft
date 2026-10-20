@@ -405,6 +405,11 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             });
         });
     });
+    crate::preset_panels::apply_compact_pattern_actions(
+        app,
+        "brush-texture-patterns",
+        crate::preset_panels::take_compact_pattern_actions(ui.ctx(), "brush-texture-patterns"),
+    );
     ui.add_space(6.0);
     widgets::hairline(ui);
     ui.add_space(6.0);

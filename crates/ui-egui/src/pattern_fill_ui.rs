@@ -156,7 +156,7 @@ fn num(f: &Map<String, Value>, k: &str, d: f64) -> f32 {
 
 /// The dialog body, in Photoshop's layout: the pattern with Snap to Origin beside it, then
 /// Angle, Scale and Link with Layer.
-pub(crate) fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
+pub(crate) fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     ui.spacing_mut().item_spacing.y = 6.0;
     ui.horizontal(|ui| {
         let pat = f.get("pattern").and_then(Value::as_str).unwrap_or_default().to_string();

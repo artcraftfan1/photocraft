@@ -149,7 +149,7 @@ fn parse_hex(h: &str) -> [u8; 3] {
 }
 
 /// The dialog body.
-pub fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
+pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     ui.spacing_mut().item_spacing.y = 6.0;
     let mut contents = get_str(f, "contents", "foreground");
     ui.horizontal(|ui| {
