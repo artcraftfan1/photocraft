@@ -451,19 +451,17 @@ fn texture(
         pattern_swatch(ui, tx);
         ui.add_space(8.0);
         ui.vertical(|ui| {
-            if !patterns.is_empty() {
-                let button = ui.button(tl!("Browse…"));
-                if let Some(id) = egui::Popup::menu(&button)
-                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                    .show(|ui| {
-                        ui.set_width(232.0);
-                        crate::preset_panels::compact_pattern_browser(ui, patterns, groups, selected_pattern, "brush-texture-patterns", 140.0)
-                    })
-                    .map(|r| r.inner)
-                    .flatten()
-                {
-                    *picked_pattern = Some(id);
-                }
+            let button = ui.button(tl!("Browse…"));
+            if let Some(id) = egui::Popup::menu(&button)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    ui.set_width(232.0);
+                    crate::preset_panels::compact_pattern_browser(ui, patterns, groups, selected_pattern, "brush-texture-patterns", 140.0)
+                })
+                .map(|r| r.inner)
+                .flatten()
+            {
+                *picked_pattern = Some(id);
             }
             ui.add_space(4.0);
             widgets::checkbox(ui, &mut tx.invert, tl!("Invert"));
