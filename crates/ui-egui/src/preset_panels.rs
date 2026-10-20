@@ -301,14 +301,7 @@ pub(crate) fn compact_pattern_browser(
         panel,
         groups,
         options: BrowserOptions { canvas: Rect::NOTHING, max_h, flush: false },
-        capabilities: BrowserCapabilities {
-            item_context_menu: false,
-            group_context_menu: false,
-            item_drag: false,
-            group_drag: false,
-            selection: true,
-            activation: true,
-        },
+        capabilities: BrowserCapabilities { item_drag: false, group_drag: false, selection: true, activation: true },
         item_context_menu: None,
         group_context_menu: None,
         paint_group: None,
@@ -427,7 +420,6 @@ pub struct HierarchyFolder<'a, T> {
 }
 
 /// Project ordered items and their folder paths into a hierarchy, truncating paths at `max_depth`.
-/// Project ordered `(folder_path, item)` pairs into a reusable tree.
 ///
 /// Paths deeper than `max_depth` are truncated before grouping, so the view cannot recurse beyond
 /// the consumer's supported nesting limit. Item references remain borrowed from the source library.
@@ -439,7 +431,6 @@ pub(crate) fn hierarchy_tree<'a, T>(items: Vec<(&'a [String], &'a T)>, max_depth
 /// Shared ordered traversal for nested hierarchy views. Consumers provide their item-run renderer,
 /// folder presentation/interaction, and collapse policy; the traversal itself owns the recursive
 /// folder/item sequencing so specialised views do not grow independent hierarchy walkers.
-/// Draw a hierarchy while leaving row appearance and item rendering to the consumer.
 ///
 /// Adjacent presets are batched into one `draw_items` call and flushed before each folder header;
 /// children are traversed only when `is_open` returns true and `max_depth` has not been reached.
@@ -567,10 +558,6 @@ pub(crate) struct BrowserOptions {
 /// Features that can be enabled independently for a particular browser consumer.
 #[derive(Clone, Copy)]
 pub(crate) struct BrowserCapabilities {
-    /// Whether item context menus should be attached to item hit targets.
-    pub(crate) item_context_menu: bool,
-    /// Whether group context menus should be attached to group headers.
-    pub(crate) group_context_menu: bool,
     /// Whether presets can be dragged to the canvas or other browser targets.
     pub(crate) item_drag: bool,
     /// Whether group headers can be reordered by dragging.
@@ -583,7 +570,7 @@ pub(crate) struct BrowserCapabilities {
 
 impl Default for BrowserCapabilities {
     fn default() -> Self {
-        Self { item_context_menu: true, group_context_menu: true, item_drag: true, group_drag: true, selection: true, activation: true }
+        Self { item_drag: true, group_drag: true, selection: true, activation: true }
     }
 }
 
@@ -630,7 +617,6 @@ pub(crate) enum ContextMenuAction {
 }
 
 /// Draw a configurable item context menu and return the chosen generic action, if any.
-/// Draw the shared rename/delete menu and an optional move-to submenu.
 ///
 /// `move_to` supplies the submenu label, available group names, and current group; the current
 /// group is omitted from the choices. Returns a generic action without mutating an asset library.
@@ -664,7 +650,6 @@ pub(crate) fn draw_item_context_menu(
 }
 
 /// Draw a group's rename/delete context menu and return the chosen action, if any.
-/// Draw a consumer-labelled rename/delete menu for a group header.
 pub(crate) fn draw_group_context_menu(ui: &mut egui::Ui, rename_label: &str, delete_label: &str) -> Option<ContextMenuAction> {
     if ui.button(rename_label).clicked() {
         ui.close();
@@ -708,7 +693,6 @@ pub(crate) fn standard_group_context_menu(ui: &mut egui::Ui, st: &mut PresetUi, 
 /// Shared context-menu hit target for specialised consumers that keep their own row/card renderer.
 /// The caller provides the menu policy and generic action requests; this helper owns only egui's
 /// response wiring, matching the standard browser's item/group targets.
-/// Attach a context menu to an existing hit target without prescribing its menu contents.
 pub(crate) fn context_menu_target(resp: egui::Response, menu: impl FnOnce(&mut egui::Ui)) {
     let _ = resp.context_menu(menu);
 }
@@ -755,7 +739,6 @@ const GRID_INSET: f32 = 8.0;
 
 /// Draw only the reusable library region. It owns groups/items, selection, drag/drop and item/group
 /// context targets, but not the containing panel's optional controls or footer.
-/// Render the shared groups/items viewport and return generic interactions for the consumer.
 ///
 /// `allocated_height` is reserved by the caller or picker shell; the browser owns only the
 /// scrolling library region, not search, recents, panel menus, footer controls, or command dispatch.
@@ -835,9 +818,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                         st.toggled.insert(k);
                     }
                 }
-                if capabilities.group_context_menu
-                    && let Some(menu) = group_context_menu
-                {
+                if let Some(menu) = group_context_menu {
                     context_menu_target(hresp.clone(), |ui| menu(ui, st, panel, g, &mut ev));
                 }
                 if capabilities.group_drag
@@ -924,9 +905,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                     {
                         dropped = Some((it.key.clone(), pp));
                     }
-                    if capabilities.item_context_menu
-                        && let Some(menu) = item_context_menu
-                    {
+                    if let Some(menu) = item_context_menu {
                         context_menu_target(resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
                     }
                 }
@@ -970,7 +949,6 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
 /// General picker-panel shell. It lays out optional panel menu, search and recents controls, gives
 /// the remaining vertical space to the browser, then places the optional footer. The browser's
 /// item/group actions remain generic `Ev` values for the consumer to handle.
-/// Compose optional panel controls around the standard browser and return its generic events.
 ///
 /// The shell reserves vertical space for enabled controls before drawing the browser, keeping the
 /// library viewport stable when groups are collapsed or the library is empty. Asset commands remain
@@ -1025,7 +1003,6 @@ pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut B
 /// Shared shell layout for consumers with a specialised browser renderer. The shell owns the
 /// optional top controls and allocates the remaining height; the consumer keeps its own rendering
 /// and action model until it can be represented by `BrowserAdapter`.
-/// Compose shared shell controls around a consumer-owned browser renderer.
 ///
 /// Unlike [`picker_shell`], this variant does not require `BrowserAdapter`; it passes the height
 /// remaining after optional controls to `draw_browser`, allowing specialised views to retain their
@@ -1964,14 +1941,7 @@ mod tests {
             panel: "compact-library",
             groups: &groups,
             options: BrowserOptions { canvas: Rect::NOTHING, max_h: 260.0, flush: false },
-            capabilities: BrowserCapabilities {
-                item_context_menu: false,
-                group_context_menu: false,
-                item_drag: false,
-                group_drag: false,
-                selection: false,
-                activation: false,
-            },
+            capabilities: BrowserCapabilities { item_drag: false, group_drag: false, selection: false, activation: false },
             item_context_menu: None,
             group_context_menu: None,
             paint_group: None,

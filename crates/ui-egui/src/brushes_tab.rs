@@ -112,7 +112,6 @@ fn responsive_list_layout(ui: &egui::Ui) -> ListLayout {
 
 /// The group key (`BrushPreset::group`) behind a panel label: ungrouped presets show as
 /// [`UNGROUPED`].
-/// Resolve a display label to the stable key used to address a brush group in commands and UI state.
 pub fn group_key(presets: &[BrushPreset], label: &str) -> String {
     if label == UNGROUPED && !presets.iter().any(|p| p.group == UNGROUPED) { String::new() } else { label.to_string() }
 }
@@ -122,7 +121,6 @@ pub const MAX_VIEW_DEPTH: usize = photocraft_engine::brush_preset_cmds::MAX_FOLD
 
 /// The collapse key of a nested folder of the group shown as `label` (`label` itself for the
 /// group).
-/// Build the stable UI-state key for a group/folder path, used to remember its collapsed state.
 pub fn folder_view_key(label: &str, folder: &[String]) -> String {
     if folder.is_empty() { label.to_string() } else { format!("{label}/{}", folder.join("/")) }
 }
@@ -133,7 +131,6 @@ pub type FolderNode<'a> = crate::preset_panels::HierarchyFolder<'a, BrushPreset>
 
 /// The tree of a group's presets (`items`, in library order): each folder appears where its first
 /// preset is, presets keep their order. Paths deeper than [`MAX_VIEW_DEPTH`] are cut there.
-/// Project brush presets into the shared ordered folder tree, bounded by the engine's depth limit.
 pub fn folder_tree<'a>(items: &[&'a BrushPreset]) -> Vec<Node<'a>> {
     crate::preset_panels::hierarchy_tree(items.iter().map(|p| (p.folder.as_slice(), *p)).collect(), MAX_VIEW_DEPTH)
 }
@@ -141,8 +138,6 @@ pub fn folder_tree<'a>(items: &[&'a BrushPreset]) -> Vec<Node<'a>> {
 /// Where a preset dropped onto `target` lands: (group, folder, index in that group after the
 /// dragged preset is taken out). `after` = dropped on the target's lower (list) or right (grid)
 /// half.
-/// Resolve a dragged preset and a target preset into the destination group, folder, and index.
-/// Returns `None` when either preset is missing or the target cannot identify a valid destination.
 pub fn drop_target(presets: &[BrushPreset], dragged: &str, target: &str, after: bool) -> Option<(String, Vec<String>, usize)> {
     let t = presets.iter().find(|p| p.name == target)?;
     let members: Vec<&str> = presets.iter().filter(|p| p.group == t.group).map(|p| p.name.as_str()).collect();
@@ -585,8 +580,6 @@ const FOLDER_INDENT: f32 = 16.0;
 /// header's upper edge (`edge`) it lands before that folder, next to it (reordering when they are
 /// siblings); anywhere else it goes into that folder. `None` when the drop does nothing: onto
 /// itself, into one of its own folders, or into the folder it is already in.
-/// Translate a folder/group drop onto another folder/group edge into a reorder or move action.
-/// `edge` distinguishes dropping before/after the target from dropping into the target folder.
 pub fn folder_drop(src_group: &str, src_folder: &[String], group: &str, folder: &[String], edge: bool) -> Option<Action> {
     if src_group == group && folder.starts_with(src_folder) {
         return None;
@@ -829,10 +822,6 @@ fn rename_bar(ui: &mut egui::Ui, st: &mut BrushesPanelState, acts: &mut Vec<Acti
 /// above them while a rename is open. `current` is the selected preset's name: selection is by
 /// identity, so it survives edits and tells look-alike duplicates apart. Group toggles and renames
 /// update `st`; the returned actions are commands for [`apply`].
-/// Draw the specialised brush list/cards and return actions for the caller to apply.
-///
-/// The shared hierarchy helper supplies folder ordering and recursion; this renderer retains brush
-/// previews, card geometry, selection feedback, and brush-specific drag/rearrangement semantics.
 pub fn preset_list(ui: &mut egui::Ui, presets: &[BrushPreset], current: Option<&str>, st: &mut BrushesPanelState, layout: ListLayout) -> Vec<Action> {
     let mut acts = Vec::new();
     rename_bar(ui, st, &mut acts);
