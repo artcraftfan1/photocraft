@@ -763,6 +763,8 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
     let size = *st.sizes.get(panel).unwrap_or(&40.0);
     let list = size <= MIN_THUMB + 0.5;
     let selected = st.selected.get(panel).cloned();
+    let rename_row_top = ui.cursor().top();
+    let has_rename_row = st.renaming.as_ref().is_some_and(|r| r.0 == panel);
     // Rename field (Photoshop opens a small dialog; inline keeps the panel modeless).
     if let Some((p, key, mut text)) = st.renaming.clone().filter(|r| r.0 == panel) {
         let mut done = None;
@@ -787,6 +789,11 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
             }
         }
     }
+    // The rename row is part of the browser's allocated height, not extra height above it. The
+    // scroll area's minimum must exclude the row (and its layout spacing), or a short dock can
+    // push the shell-owned footer below the panel.
+    let rename_row_height = if has_rename_row { (ui.cursor().top() - rename_row_top).max(0.0) } else { 0.0 };
+    let scroll_height = (max_h - rename_row_height).max(0.0);
     let mut headers: Vec<(usize, Rect, String)> = Vec::new();
     let mut dropped: Option<(String, Pos2)> = None;
     // Folder drag (#3658): the order the folders are drawn in, and what the pointer is doing this
@@ -798,9 +805,12 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
     // The browser is the flexible middle region of a picker panel. Keep it at the allocated
     // height even when the library is short; otherwise the footer floats up and each consumer's
     // panel geometry depends on how many presets happen to be installed.
-    let scroll = egui::ScrollArea::vertical().id_salt(("preset-scroll", panel)).max_height(max_h).min_scrolled_height(max_h).auto_shrink([false, false]).show(
-        ui,
-        |ui| {
+    let scroll = egui::ScrollArea::vertical()
+        .id_salt(("preset-scroll", panel))
+        .max_height(scroll_height)
+        .min_scrolled_height(scroll_height)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
             for &gi in &display {
                 let Some(g) = groups.get(gi) else { continue };
@@ -928,8 +938,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                     ui.painter().line_segment([pos2(r.left(), y), pos2(r.right(), y)], Stroke::new(2.0, t.accent));
                 }
             }
-        },
-    );
+        });
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("preset-browser-rect", panel)), scroll.inner_rect));
     // Apply the drop now every header rect is known; the next frame draws the new order.
     if let Some((from, p)) = released {
@@ -1880,6 +1889,39 @@ mod tests {
         let rect = last_browser_rect(&h.ctx, "short-library");
         assert!(rect.is_some(), "browser viewport is recorded");
         assert!(rect.unwrap().height() >= 175.0, "short libraries should retain their allocated height: {rect:?}");
+    }
+
+    #[test]
+    fn short_picker_keeps_the_footer_visible_while_renaming() {
+        use std::{cell::Cell, rc::Rc};
+
+        use egui_kittest::Harness;
+
+        let mut st = PresetUi::default();
+        st.renaming = Some(("short-rename".into(), "preset-key".into(), "Preset name".into()));
+        let groups = Vec::<GroupView>::new();
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut adapter = BrowserAdapter {
+            panel: "short-rename",
+            groups: &groups,
+            options: BrowserOptions { canvas: Rect::NOTHING, max_h: 180.0, flush: false },
+            capabilities: BrowserCapabilities::default(),
+            item_context_menu: Some(standard_item_context_menu),
+            group_context_menu: Some(standard_group_context_menu),
+            paint_group: None,
+            paint_item: &mut |_, _, _, _| {},
+        };
+        let content_bottom = Rc::new(Cell::new(0.0_f32));
+        let measured_bottom = Rc::clone(&content_bottom);
+        let mut h = Harness::builder().with_size(vec2(320.0, 180.0)).build_ui_state(
+            |ui, _app: &mut PhotocraftApp| {
+                picker_shell(ui, &mut st, &mut adapter, ShellOptions { footer: Some(FooterOptions::standard("Create preset")), ..Default::default() });
+                measured_bottom.set(ui.min_rect().bottom());
+            },
+            app,
+        );
+        h.run_steps(3);
+        assert!(content_bottom.get() <= 180.0, "footer should stay inside the short panel: content bottom {}", content_bottom.get());
     }
 
     #[test]
