@@ -180,7 +180,11 @@ pub fn show_picker(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // Remember it for the picker's next open, and — egui's memory being saved — the next run.
     ctx.data_mut(|d| d.insert_persisted(size_id, [content.x, content.y]));
     let style = ctx.global_style();
-    let size = content + style.spacing.menu_margin.sum() + egui::Vec2::splat(2.0 * style.visuals.window_stroke().width);
+    // The body's controls and scroll area can measure 8 pt taller than the requested minimum
+    // content height. Account for that measured overflow, the popup margin and its stroke when
+    // clamping the origin; otherwise a picker at the bottom edge can extend to y=802 in an 800 pt
+    // viewport after its layout settles.
+    let size = content + style.spacing.menu_margin.sum() + egui::Vec2::splat(2.0 * style.visuals.window_stroke().width + 8.0);
     let pos = egui::pos2(x.min(screen.right() - size.x).max(screen.left()), y.min(screen.bottom() - size.y).max(screen.top()));
     let area = egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         let before = app.session.tools.brush.clone();
@@ -338,7 +342,10 @@ mod tests {
         let shown = h.ctx.memory(|m| m.area_rect(egui::Id::new("canvas-brush-picker"))).expect("picker shown");
         let screen = h.ctx.content_rect();
         assert!((shown.min.x - c.x).abs() < 1.0 && shown.min.y <= c.y + 1.0, "{shown:?}");
-        assert!(screen.contains_rect(shown.shrink(0.5)) && shown.width() > 250.0 && shown.height() > 150.0, "{shown:?}");
+        assert!(
+            screen.contains_rect(shown.shrink(0.5)) && shown.width() > 250.0 && shown.height() > 150.0,
+            "picker rect {shown:?} must fit content rect {screen:?} and retain usable size"
+        );
         // It is the real preset library, not a fixed set of round tips (#258).
         let names: Vec<String> = h.state().session.tools.presets.iter().take(3).map(|p| p.name.clone()).collect();
         {
