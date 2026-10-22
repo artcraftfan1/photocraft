@@ -849,14 +849,20 @@ fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str) {
     match panel {
         "gradients" | "patterns" | "swatches" => {
             let state = &mut app.ui.presets_ui;
+            // Re-enable once the shared search placeholder is a functional search control.
+            /*
             let mut search_visible = state.shows_search(panel);
             if ui.checkbox(&mut search_visible, tl!("Search Bar")).changed() {
                 state.search_visible.insert(panel.into(), search_visible);
             }
+            */
+            // Re-enable once the recent-items strip is implemented.
+            /*
             let mut recents_visible = state.shows_recents(panel);
             if ui.checkbox(&mut recents_visible, tl!("Recent Strip")).changed() {
                 state.recents_visible.insert(panel.into(), recents_visible);
             }
+            */
             if panel == "gradients" && ui.button(tl!("Import .GRD")).clicked() {
                 crate::preset_files_ui::import_gradients_dialog(app);
                 ui.close();

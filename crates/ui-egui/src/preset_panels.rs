@@ -301,7 +301,7 @@ pub(crate) fn compact_pattern_browser(
     selected: &str,
     panel: &'static str,
     max_h: f32,
-    show_placeholder_rows: bool,
+    _show_placeholder_rows: bool,
 ) -> Option<String> {
     let ctx = ui.ctx().clone();
     let t = Tokens::get(&ctx);
@@ -318,9 +318,10 @@ pub(crate) fn compact_pattern_browser(
     });
     state.selected.insert(panel.into(), selected.to_string());
     state.sizes.entry(panel.into()).or_insert(40.0);
-    if show_placeholder_rows {
-        draw_placeholder_rows(ui, &mut state, panel, true);
-    }
+    // Re-enable the compact search/recent rows once their controls are implemented.
+    // if show_placeholder_rows {
+    //     draw_placeholder_rows(ui, &mut state, panel, true);
+    // }
     let browser_h = max_h.min(ui.available_height());
     let parent_menu_id = egui::containers::menu::MenuState::from_ui(ui, |_, stack| stack.id);
     let close_pending_id = egui::Id::new(("compact-pattern-submenu-close", panel));
@@ -401,6 +402,8 @@ pub(crate) fn compact_pattern_browser(
                             ui.ctx().data_mut(|data| data.insert_temp(close_pending_id, true));
                         }
                     }
+                    // Re-enable this menu entry when the recent-items strip is implemented.
+                    /*
                     if show_placeholder_rows {
                         ui.separator();
                         let mut recents_visible = state.shows_recents(panel);
@@ -408,6 +411,7 @@ pub(crate) fn compact_pattern_browser(
                             state.recents_visible.insert(panel.into(), recents_visible);
                         }
                     }
+                    */
                 });
             }
         });
@@ -1140,9 +1144,10 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
 /// the responsibility of the caller that consumes the returned events.
 pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut BrowserAdapter<'_>, mut shell: ShellOptions<'_>) -> Vec<Ev> {
     let panel = adapter.panel.to_string();
-    if shell.placeholder_controls {
-        draw_placeholder_rows(ui, st, &panel, false);
-    }
+    // Keep the shared placeholder layout available for when search and recents are implemented.
+    // if shell.placeholder_controls {
+    //     draw_placeholder_rows(ui, st, &panel, false);
+    // }
     shell_controls(ui, &mut shell);
 
     let footer_id = egui::Id::new(("preset-footer", panel.as_str()));

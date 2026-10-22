@@ -282,14 +282,15 @@ pub fn body(
             );
         });
     };
-    let mut recents = |ui: &mut egui::Ui| crate::preset_panels::recent_strip_placeholder(ui);
+    // Re-enable the recent-items strip when it is implemented.
+    // let mut recents = |ui: &mut egui::Ui| crate::preset_panels::recent_strip_placeholder(ui);
     let mut footer = |ui: &mut egui::Ui| {
         ui.add_space((size.y - (ui.cursor().min.y - top) - SLIDER_H).max(FOOTER_GAP));
         scale_slider(ui, &mut state.borrow_mut());
     };
-    let (show_search, show_recents) = {
+    let show_search = {
         let state = state.borrow();
-        (state.picker_search_visible, state.picker_recents_visible)
+        state.picker_search_visible
     };
 
     let list_picks = crate::preset_panels::picker_shell_custom(
@@ -298,7 +299,8 @@ pub fn body(
         crate::preset_panels::ShellOptions {
             panel_menu: Some(&mut menu),
             search: if show_search { Some(&mut search) } else { None },
-            recents: if show_recents { Some(&mut recents) } else { None },
+            // Re-enable the recent-items strip when it is implemented.
+            // recents: if show_recents { Some(&mut recents) } else { None },
             custom_footer: Some((&mut footer, FOOTER_H)),
             ..Default::default()
         },
@@ -429,7 +431,8 @@ fn gear_menu(ui: &mut egui::Ui, current: Option<&str>, presets: &[BrushPreset], 
         }
         ui.separator();
         ui.checkbox(&mut st.picker_search_visible, tl!("Search Bar"));
-        ui.checkbox(&mut st.picker_recents_visible, tl!("Recent Strip"));
+        // Re-enable when the recent-items strip is implemented.
+        // ui.checkbox(&mut st.picker_recents_visible, tl!("Recent Strip"));
         ui.separator();
         if ui.button(tl!("Import Brushes…")).clicked() {
             picks.push(Pick::Import);
