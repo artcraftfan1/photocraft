@@ -686,6 +686,7 @@ struct Draw<'a> {
     /// The selected preset's name (by identity, so look-alike duplicates stay distinct).
     current: Option<&'a str>,
     collapsed: &'a [String],
+    /// Keep folders expanded while the search field filters the visible presets.
     filtering: bool,
     grid: bool,
     layout: ListLayout,
