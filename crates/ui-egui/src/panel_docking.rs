@@ -935,7 +935,7 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
         }
         let collapsed = panels.iter().all(|id| self.collapsed.contains(id));
         let locked = self.app.session.prefs().workspace_locked;
-        let menu_icon = if matches!(active.as_str(), "gradients" | "patterns" | "swatches") { "menu" } else { "ellipsis" };
+        let menu_icon = if matches!(active.as_str(), "gradients" | "patterns" | "swatches") { "align-justify" } else { "ellipsis" };
         let resp = crate::icons::button(ui, menu_icon, ui.available_height().min(28.0), false, tl!("Panel menu"));
         egui::Popup::menu(&resp).show(|ui| {
             ui.set_min_width(180.0);

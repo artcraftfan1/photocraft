@@ -18,6 +18,11 @@ use crate::PhotocraftApp;
 use crate::state::Tool;
 use crate::theme::Tokens;
 
+/// The shared preset-picker menu button. Keep the glyph consistent across asset pickers.
+pub(crate) fn picker_menu_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    crate::icons::button(ui, "align-justify", 24.0, false, tl!(label))
+}
+
 /// Panel state (serde, so the control channel can read and drive it).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -366,7 +371,7 @@ pub(crate) fn compact_pattern_browser(
             }
         });
         ui.allocate_ui_with_layout(vec2(menu_width, browser_h), egui::Layout::top_down(egui::Align::Min), |menu_ui| {
-            let mut menu = crate::icons::button(menu_ui, "settings", 20.0, false, tl!("Panel menu"));
+            let mut menu = picker_menu_button(menu_ui, "Panel menu");
             // Nudge the submenu anchor into the browser by a few pixels instead of leaving a gap.
             menu.interact_rect = menu.interact_rect.translate(egui::vec2(-3.0, 0.0));
             // Keep this as a real submenu so clicks inside it don't dismiss the picker popup.
@@ -1348,6 +1353,16 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let canvas = canvas_drop_rect(app);
     let mut st = std::mem::take(&mut app.ui.presets_ui);
     let max_h = (ui.available_height() - 40.0).clamp(90.0, 260.0);
+    let mut import_gradients = false;
+    let mut panel_menu = |ui: &mut egui::Ui| {
+        let button = picker_menu_button(ui, "Gradient Preset Options");
+        egui::containers::menu::SubMenu::new().show(ui, &button, |ui| {
+            if ui.button(tl!("Import .GRD")).clicked() {
+                import_gradients = true;
+                ui.close();
+            }
+        });
+    };
     let mut adapter = BrowserAdapter {
         panel: "gradients",
         groups: &groups,
@@ -1365,9 +1380,12 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui,
         &mut st,
         &mut adapter,
-        ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new gradient"))), placeholder_controls: true, ..Default::default() },
+        ShellOptions { panel_menu: Some(&mut panel_menu), footer: Some(FooterOptions::standard(tl!("Create new gradient"))), placeholder_controls: true, ..Default::default() },
     );
     app.ui.presets_ui = st;
+    if import_gradients {
+        crate::preset_files_ui::import_gradients_dialog(app);
+    }
     for e in events {
         match &e {
             Ev::Select(k) => {

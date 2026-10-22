@@ -389,7 +389,7 @@ pub fn resize_grip(ui: &mut egui::Ui, frame: egui::Rect, content: egui::Vec2) ->
 /// The gear: Photoshop's picker menu. A new preset, rename or delete the current one, the list's
 /// view, and Import Brushes.
 fn gear_menu(ui: &mut egui::Ui, current: Option<&str>, presets: &[BrushPreset], st: &mut BrushesPanelState, picks: &mut Vec<Pick>) {
-    let gear = named(icons::button(ui, "menu", 24.0, false, tl!("Brush Preset Options")), "Brush Preset Options");
+    let gear = named(crate::preset_panels::picker_menu_button(ui, "Brush Preset Options"), "Brush Preset Options");
     // The menu hangs 30 pt right of the gear, off the button's own edge; the align fallbacks still
     // keep it on screen near the window's edge.
     let anchor = match egui::PopupAnchor::from(&gear) {

@@ -210,10 +210,7 @@ fn pro_panel(
     let tabs_out = crate::tab_strip::pro_tabs(ui, ui.id().with((id, "tabs")), strip, menu.left(), tabs, selected, collapsed, reorderable);
     let mresp = ui.interact(menu, ui.id().with((id, "menu")), Sense::click());
     let c = if mresp.hovered() { t.text } else { t.text_faint };
-    for k in 0..3 {
-        let y = menu.center().y - 3.5 + k as f32 * 3.5;
-        ui.painter().line_segment([pos2(menu.center().x - 5.0, y), pos2(menu.center().x + 5.0, y)], Stroke::new(1.0, c));
-    }
+    crate::icons::paint(ui, menu, "align-justify", 14.0, c);
     // Body.
     if !collapsed {
         egui::Frame::NONE.fill(t.card).corner_radius(CornerRadius { nw: 0, ne: 0, sw: 3, se: 3 }).inner_margin(body_margin(true)).show(ui, |ui| {
@@ -232,10 +229,7 @@ pub fn panel_menu_button(ui: &mut Ui) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let tint = crate::icons::button_chrome(ui, rect, false, resp.hovered());
     if t.pro {
-        for k in 0..3 {
-            let y = rect.center().y - 3.5 + k as f32 * 3.5;
-            ui.painter().line_segment([pos2(rect.center().x - 5.0, y), pos2(rect.center().x + 5.0, y)], Stroke::new(1.0, tint));
-        }
+        crate::icons::paint(ui, rect, "align-justify", 14.0, tint);
     } else {
         crate::icons::paint(ui, rect, "ellipsis", 14.0, tint);
     }

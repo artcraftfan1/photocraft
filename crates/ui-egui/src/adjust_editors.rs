@@ -1414,7 +1414,7 @@ fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
             .icon(widgets::chevron_icon)
             .close_behavior(close)
             .show_ui(ui, |ui| {
-                let gear = crate::icons::button(ui, "settings", 24.0, false, tl!("Gradient Preset Options"));
+                let gear = crate::preset_panels::picker_menu_button(ui, "Gradient Preset Options");
                 egui::containers::menu::SubMenu::new().show(ui, &gear, |ui| {
                     if ui.button(tl!("Import .GRD")).clicked() {
                         e.import_gradients = true;
