@@ -857,6 +857,10 @@ fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str) {
             if ui.checkbox(&mut recents_visible, tl!("Recent Strip")).changed() {
                 state.recents_visible.insert(panel.into(), recents_visible);
             }
+            if panel == "gradients" && ui.button(tl!("Import .GRD")).clicked() {
+                crate::preset_files_ui::import_gradients_dialog(app);
+                ui.close();
+            }
             ui.separator();
             if panel == "swatches" {
                 crate::swatches_ui::panel_menu(app, ui);

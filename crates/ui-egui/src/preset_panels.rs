@@ -1353,16 +1353,6 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let canvas = canvas_drop_rect(app);
     let mut st = std::mem::take(&mut app.ui.presets_ui);
     let max_h = (ui.available_height() - 40.0).clamp(90.0, 260.0);
-    let mut import_gradients = false;
-    let mut panel_menu = |ui: &mut egui::Ui| {
-        let button = picker_menu_button(ui, "Gradient Preset Options");
-        egui::containers::menu::SubMenu::new().show(ui, &button, |ui| {
-            if ui.button(tl!("Import .GRD")).clicked() {
-                import_gradients = true;
-                ui.close();
-            }
-        });
-    };
     let mut adapter = BrowserAdapter {
         panel: "gradients",
         groups: &groups,
@@ -1380,12 +1370,9 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui,
         &mut st,
         &mut adapter,
-        ShellOptions { panel_menu: Some(&mut panel_menu), footer: Some(FooterOptions::standard(tl!("Create new gradient"))), placeholder_controls: true, ..Default::default() },
+        ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new gradient"))), placeholder_controls: true, ..Default::default() },
     );
     app.ui.presets_ui = st;
-    if import_gradients {
-        crate::preset_files_ui::import_gradients_dialog(app);
-    }
     for e in events {
         match &e {
             Ev::Select(k) => {

@@ -869,7 +869,7 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
                         let resized = clamp_float(Rect::from_min_size(pos2(x, rect.top()), vec2(width, height)), screen);
                         self.output.actions.push(Action::MoveFloating { panel: first.clone(), rect: [resized.left(), resized.top(), resized.width(), resized.height()] });
                     }
-                    if response.hovered() || response.dragged() || response.has_focus() {
+                    if response.dragged() {
                         let (a, b) = match handle_id {
                             "resize-left" => (handle_rect.left_top(), handle_rect.left_bottom()),
                             "resize-left-bottom" => (handle_rect.left_top(), handle_rect.right_bottom()),

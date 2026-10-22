@@ -331,9 +331,6 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String,
         isolated_curve,
     };
     let e = adjust_editors::editor(ui, &kind, &mut values, &cx);
-    if e.import_gradients {
-        crate::preset_files_ui::import_gradients_dialog(app);
-    }
     if e.changed
         && let Value::Object(v) = values
     {
