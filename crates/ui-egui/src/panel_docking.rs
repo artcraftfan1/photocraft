@@ -976,18 +976,20 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
         let menu_icon = if matches!(active.as_str(), "gradients" | "patterns" | "swatches") { "align-justify" } else { "ellipsis" };
         let resp = crate::icons::button(ui, menu_icon, ui.available_height().min(28.0), false, tl!("Panel menu"));
         let popup_id = egui::Popup::default_response_id(&resp);
-        // Dismiss before the docking surface registers its drag responses. Closing after showing
-        // the popup lets its layer consume the initial press, so title/tab drags never start.
+        // On an outside press, dismiss the menu and make its popup layer click-through for this
+        // frame. The docking surface can then receive the original press and start a normal drag;
+        // manually setting dragged_id after event routing does not reliably start that lifecycle.
+        let mut popup_interactable = true;
+        let mut dismiss_on_outside_press = false;
         if egui::Popup::is_id_open(ui.ctx(), popup_id) {
             let popup_rect = ui.ctx().memory(|memory| memory.area_rect(popup_id));
-            let (pressed, pointer_pos) = ui.input(|input| (input.pointer.any_pressed(), input.pointer.interact_pos()));
-            if pressed
-                && pointer_pos.is_some_and(|pos| !popup_rect.is_some_and(|rect| rect.contains(pos)) && !resp.rect.contains(pos))
-            {
-                egui::Popup::close_id(ui.ctx(), popup_id);
+            let outside_press = ui.input(|input| input.pointer.button_pressed(egui::PointerButton::Primary).then(|| input.pointer.interact_pos()).flatten());
+            if outside_press.is_some_and(|pos| !popup_rect.is_some_and(|rect| rect.contains(pos)) && !resp.rect.contains(pos)) {
+                popup_interactable = false;
+                dismiss_on_outside_press = true;
             }
         }
-        egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        egui::Popup::menu(&resp).interactable(popup_interactable).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
             ui.set_min_width(180.0);
             panel_menu(self.app, ui, active);
             if ui.add_enabled(!locked, egui::Button::new(if collapsed { tl!("Expand Panel Group") } else { tl!("Collapse Panel Group") })).clicked() {
@@ -1016,6 +1018,11 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
                 ui.close();
             }
         });
+        // Close only after rendering this press frame, so `interactable(false)` can route the
+        // initiating press through to the docking surface before the popup disappears.
+        if dismiss_on_outside_press {
+            egui::Popup::close_id(ui.ctx(), popup_id);
+        }
     }
 }
 
