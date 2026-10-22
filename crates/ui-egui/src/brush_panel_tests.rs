@@ -90,6 +90,41 @@ fn brush_settings_texture_uses_compact_patterns_browser_and_keeps_panel_selectio
 }
 
 #[test]
+fn brush_texture_pattern_gear_menu_stays_open_when_pointer_leaves_it() {
+    use egui_kittest::kittest::Queryable;
+
+    let mut h = harness(0, 3);
+    h.state_mut().session.tools.brush.texture.enabled = true;
+    let pattern_name = h
+        .state()
+        .session
+        .presets
+        .pattern_groups
+        .iter()
+        .find_map(|group| {
+            group.items.first().and_then(|id| h.state().session.patterns.items.iter().find(|pattern| &pattern.id == id).map(|pattern| pattern.display_name().to_string()))
+        })
+        .expect("a built-in Patterns group");
+    h.run_steps(2);
+
+    h.get_by_label("Browse…").click();
+    h.run_steps(2);
+    h.get_by_label("Panel menu").click();
+    h.run_steps(2);
+    assert!(h.query_all_by_label("Small Thumbnail").count() > 0, "gear submenu should open");
+
+    // Move into the pattern browser, outside the gear submenu, without clicking.
+    let outside_submenu = h.get_by_label(&pattern_name).rect().center();
+    h.event(egui::Event::PointerMoved(outside_submenu));
+    h.run_steps(2);
+    assert!(h.query_all_by_label("Small Thumbnail").count() > 0, "pointer movement alone must not dismiss the gear submenu");
+
+    h.get_by_label("Panel menu").click();
+    h.run_steps(2);
+    assert_eq!(h.query_all_by_label("Small Thumbnail").count(), 0, "clicking the gear again should dismiss its submenu");
+}
+
+#[test]
 fn selecting_a_brush_preset_clears_the_compact_texture_pattern_selection() {
     let mut app = app();
     let preset = app.session.tools.presets.first().expect("built-in brush preset").name.clone();

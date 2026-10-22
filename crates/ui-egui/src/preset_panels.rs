@@ -385,14 +385,27 @@ pub(crate) fn compact_pattern_browser(
                     state.open_item = submenu_open.then_some(submenu_id);
                 });
             }
+            // `SubMenu::show` normally closes when the pointer moves to another entry in its
+            // parent menu. This is a click-toggled settings panel, not a hover submenu: keep it
+            // open while the pointer moves around, and dismiss it only on a fresh click outside
+            // the submenu (or another click on the gear button).
+            let submenu_rect = menu_ui.ctx().memory(|memory| memory.area_rect(submenu_id));
+            let outside_press = submenu_open
+                .then(|| {
+                    menu_ui.ctx().input(|input| input.pointer.button_pressed(egui::PointerButton::Primary).then(|| input.pointer.interact_pos()).flatten())
+                })
+                .flatten();
+            let dismiss_on_outside_press = outside_press.is_some_and(|pos| !submenu_rect.is_some_and(|rect| rect.contains(pos)) && !menu.rect.contains(pos));
+            if dismiss_on_outside_press {
+                submenu_open = false;
+                egui::containers::menu::MenuState::from_ui(menu_ui, |state, _| {
+                    state.open_item = None;
+                });
+            }
             if submenu_open {
                 egui::containers::menu::SubMenu::new().show(menu_ui, &menu, |ui| {
                     let selected_size = *state.sizes.get(panel).unwrap_or(&40.0);
-                    for (label, size) in [
-                        (tl!("Small Thumbnail"), 28.0),
-                        (tl!("Large Thumbnail"), 40.0),
-                        (tl!("List"), MIN_THUMB),
-                    ] {
+                    for (label, size) in [(tl!("Small Thumbnail"), 28.0), (tl!("Large Thumbnail"), 40.0), (tl!("List"), MIN_THUMB)] {
                         let selected = (selected_size - size).abs() < 0.1;
                         let row_label = format!("{}  {label}", if selected { "✓" } else { " " });
                         let clicked = ui.button(row_label).clicked();
@@ -415,6 +428,14 @@ pub(crate) fn compact_pattern_browser(
                     }
                     */
                 });
+                // `SubMenu::show` clears `open_item` on hover-leave. Restore it unless this
+                // frame explicitly requested a close, so pointer movement alone is harmless.
+                let close_pending = menu_ui.ctx().data(|data| data.get_temp::<bool>(close_pending_id).unwrap_or(false));
+                if !close_pending {
+                    egui::containers::menu::MenuState::from_ui(menu_ui, |state, _| {
+                        state.open_item = Some(submenu_id);
+                    });
+                }
             }
         });
     });
