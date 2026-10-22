@@ -20,7 +20,7 @@ use crate::theme::Tokens;
 
 /// The shared preset-picker menu button. Keep the glyph consistent across asset pickers.
 pub(crate) fn picker_menu_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
-    crate::icons::button(ui, "align-justify", 24.0, false, tl!(label))
+    crate::icons::button(ui, "settings", 24.0, false, tl!(label))
 }
 
 /// Panel state (serde, so the control channel can read and drive it).
@@ -387,14 +387,16 @@ pub(crate) fn compact_pattern_browser(
             }
             if submenu_open {
                 egui::containers::menu::SubMenu::new().show(menu_ui, &menu, |ui| {
-                    ui.label(tl!("Display"));
-                    ui.separator();
+                    let selected_size = *state.sizes.get(panel).unwrap_or(&40.0);
                     for (label, size) in [
                         (tl!("Small Thumbnail"), 28.0),
                         (tl!("Large Thumbnail"), 40.0),
                         (tl!("List"), MIN_THUMB),
                     ] {
-                        if ui.selectable_label((*state.sizes.get(panel).unwrap_or(&40.0) - size).abs() < 0.1, label).clicked() {
+                        let selected = (selected_size - size).abs() < 0.1;
+                        let row_label = format!("{}  {label}", if selected { "✓" } else { " " });
+                        let clicked = ui.button(row_label).clicked();
+                        if clicked {
                             state.sizes.insert(panel.into(), size);
                             // Close only this submenu on the next frame; `ui.close()` would also
                             // close the picker, and clearing MenuState now makes egui misclassify
