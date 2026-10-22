@@ -673,6 +673,43 @@ fn customized_panel_menus_and_rail_remain_reachable_after_float_and_restore() {
     assert!(menu.query_all_by_label("New Swatch…").count() > 0);
 }
 
+fn open_floating_panel_menu(h: &mut Harness<'static, PhotocraftApp>) -> egui::Rect {
+    let area = egui::Id::new("photocraft-panel-docking").with(("floating", &"swatches".to_string()));
+    let floating = h.ctx.memory(|memory| memory.area_rect(area)).unwrap();
+    let menu = h.query_all_by_label("Panel menu").find(|node| floating.contains_rect(node.rect())).unwrap().rect().center();
+    h.hover_at(menu);
+    for pressed in [true, false] {
+        h.event(Event::PointerButton { pos: menu, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    assert!(h.query_all_by_label("Close Tab Group").count() > 0, "panel menu should be open before dragging");
+    h.ctx.memory(|memory| memory.area_rect(area)).unwrap()
+}
+
+#[test]
+fn floating_panel_title_remains_draggable_when_its_menu_is_open() {
+    let mut app = app();
+    app.run("window.panel.float", json!({"panel":"swatches","x":40,"y":60,"width":300,"height":300})).unwrap();
+    let mut h = harness(app, vec2(1280.0, 800.0));
+    let before = open_floating_panel_menu(&mut h);
+    drag(&mut h, before.min + vec2(80.0, 7.0), before.min + vec2(130.0, 37.0));
+    let after = h.ctx.memory(|memory| memory.area_rect(egui::Id::new("photocraft-panel-docking").with(("floating", &"swatches".to_string())))).unwrap();
+    assert_ne!(after.min, before.min, "dragging the floating title should move its panel");
+}
+
+#[test]
+fn floating_panel_tab_strip_remains_draggable_when_its_menu_is_open() {
+    let mut app = app();
+    app.run("window.panel.float", json!({"panel":"swatches","x":40,"y":60,"width":300,"height":300})).unwrap();
+    let mut h = harness(app, vec2(1280.0, 800.0));
+    let before = open_floating_panel_menu(&mut h);
+    let source = egui::pos2(before.right() - 42.0, before.top() + 15.0 + 10.0);
+    drag(&mut h, source, source + vec2(50.0, 30.0));
+    let after = h.ctx.memory(|memory| memory.area_rect(egui::Id::new("photocraft-panel-docking").with(("floating", &"swatches".to_string())))).unwrap();
+    assert_ne!(after.min, before.min, "dragging the empty tab-strip region should move its panel");
+}
+
 #[test]
 fn custom_workspace_saves_shared_layout_and_timeline_without_embedding_flags() {
     let mut app = app();

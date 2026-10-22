@@ -975,7 +975,19 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
         let locked = self.app.session.prefs().workspace_locked;
         let menu_icon = if matches!(active.as_str(), "gradients" | "patterns" | "swatches") { "align-justify" } else { "ellipsis" };
         let resp = crate::icons::button(ui, menu_icon, ui.available_height().min(28.0), false, tl!("Panel menu"));
-        egui::Popup::menu(&resp).show(|ui| {
+        let popup_id = egui::Popup::default_response_id(&resp);
+        // Dismiss before the docking surface registers its drag responses. Closing after showing
+        // the popup lets its layer consume the initial press, so title/tab drags never start.
+        if egui::Popup::is_id_open(ui.ctx(), popup_id) {
+            let popup_rect = ui.ctx().memory(|memory| memory.area_rect(popup_id));
+            let (pressed, pointer_pos) = ui.input(|input| (input.pointer.any_pressed(), input.pointer.interact_pos()));
+            if pressed
+                && pointer_pos.is_some_and(|pos| !popup_rect.is_some_and(|rect| rect.contains(pos)) && !resp.rect.contains(pos))
+            {
+                egui::Popup::close_id(ui.ctx(), popup_id);
+            }
+        }
+        egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
             ui.set_min_width(180.0);
             panel_menu(self.app, ui, active);
             if ui.add_enabled(!locked, egui::Button::new(if collapsed { tl!("Expand Panel Group") } else { tl!("Collapse Panel Group") })).clicked() {
