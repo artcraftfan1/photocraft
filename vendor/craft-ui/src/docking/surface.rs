@@ -172,6 +172,14 @@ pub trait DockContent<P> {
     fn group_header_width(&self, _panels: &[P], _active: &P, _floating: bool) -> f32 {
         0.0
     }
+    /// Height of the extra title strip used by floating groups.
+    fn floating_title_height(&self, _panels: &[P], _active: &P) -> f32 {
+        FLOATING_TITLE_HEIGHT
+    }
+    /// Whether floating title and group-drag areas use a move-style cursor.
+    fn floating_chrome_move_cursor(&self, _panels: &[P], _active: &P) -> bool {
+        true
+    }
     fn group_header(&mut self, _ui: &mut Ui, _panels: &[P], _active: &P, _floating: bool) {}
 }
 
@@ -552,6 +560,7 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
     fn group(&mut self, ui: &mut Ui, panels: &[P], active: usize, rect: Rect, floating: bool) {
         let Some(selected) = panels.get(active) else { return };
         let policy = (self.permissions)(selected);
+        let move_cursor = self.content.floating_chrome_move_cursor(panels, selected);
         let bare = panels.len() == 1 && policy == Permissions::PROTECTED;
         if bare {
             self.contents(ui, selected, rect);
@@ -566,7 +575,7 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
             return;
         }
         let title_bar = floating && self.content.has_floating_title(panels, selected);
-        let title_height = if title_bar { FLOATING_TITLE_HEIGHT.min(rect.height()) } else { 0.0 };
+        let title_height = if title_bar { self.content.floating_title_height(panels, selected).clamp(0.0, 4096.0).min(rect.height()) } else { 0.0 };
         let title_rect = Rect::from_min_max(rect.min, pos2(rect.right(), rect.top() + title_height));
         let strip = Rect::from_min_max(
             pos2(rect.left(), title_rect.bottom()),
@@ -597,9 +606,12 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
             self.content.group_header(&mut child, panels, selected, floating);
         }
         if title_bar && panels.iter().all(|p| (self.permissions)(p).movable) {
-            let drag_rect = Rect::from_min_max(title_rect.min, pos2(title_rect.right() - header_width, title_rect.bottom()));
-            let response = ui.interact(drag_rect, self.id.with(("move-title", panels.first())), Sense::drag())
-                .on_hover_cursor(egui::CursorIcon::Grab);
+            // Picker close controls are 18 px wide inside the 28 px header allocation. Keep
+            // the unused 10 px beside the control draggable instead of leaving it dead.
+            let title_drag_right = title_rect.right() - if move_cursor { header_width } else { (header_width - 10.0).max(0.0) };
+            let drag_rect = Rect::from_min_max(title_rect.min, pos2(title_drag_right, title_rect.bottom()));
+            let title_drag = ui.interact(drag_rect, self.id.with(("move-title", panels.first())), Sense::drag());
+            let response = title_drag.on_hover_cursor(if move_cursor { egui::CursorIcon::Grab } else { egui::CursorIcon::Default });
             self.register_interaction(ui.ctx(), response.id);
             if response.dragged() && !ui.input(|i| i.key_pressed(Key::Escape) || !i.focused) {
                 let moved = clamp_float(rect.translate(ui.input(|i| i.pointer.delta())), ui.ctx().content_rect());
@@ -637,7 +649,8 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
         let drag_right = strip.right() - tab_header_width;
         if floating && x < drag_right {
             let drag_strip = Rect::from_min_max(pos2(x, strip.top()), pos2(drag_right, strip.bottom()));
-            let response = ui.interact(drag_strip, self.id.with(("move-group", panels.first())), Sense::drag()).on_hover_cursor(egui::CursorIcon::Grab);
+            let response = ui.interact(drag_strip, self.id.with(("move-group", panels.first())), Sense::drag())
+                .on_hover_cursor(if move_cursor { egui::CursorIcon::Grab } else { egui::CursorIcon::Default });
             self.register_interaction(ui.ctx(), response.id);
             response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &self.style.move_label));
             if panels.iter().all(|p| (self.permissions)(p).movable)
@@ -792,8 +805,9 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
             let mut limits = self.node_limits(&Node::Tabs { panels: group.panels.clone(), active: group.active });
             // Floating groups that opt into title bars need room beyond the tab strip.
             if group.panels.get(group.active).is_some_and(|active| self.content.has_floating_title(&group.panels, active)) {
-                limits.min.y = (limits.min.y + FLOATING_TITLE_HEIGHT).min(1_000_000.0);
-                limits.max.y = (limits.max.y + FLOATING_TITLE_HEIGHT).max(limits.min.y).min(1_000_000.0);
+                let title_height = self.content.floating_title_height(&group.panels, &group.panels[group.active]).clamp(0.0, 4096.0);
+                limits.min.y = (limits.min.y + title_height).min(1_000_000.0);
+                limits.max.y = (limits.max.y + title_height).max(limits.min.y).min(1_000_000.0);
             }
             let size = vec2(width, height).max(limits.min).min(limits.max);
             let rect = clamp_float(Rect::from_min_size(pos2(x, y), size), screen);

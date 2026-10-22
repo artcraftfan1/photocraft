@@ -909,14 +909,42 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
     fn group_header_width(&self, _panels: &[String], _active: &String, _floating: bool) -> f32 {
         28.0
     }
+    fn floating_title_height(&self, _panels: &[String], active: &String) -> f32 {
+        if matches!(active.as_str(), "gradients" | "patterns" | "swatches") { 15.0 } else { 22.0 }
+    }
+    fn floating_chrome_move_cursor(&self, _panels: &[String], active: &String) -> bool {
+        !matches!(active.as_str(), "gradients" | "patterns" | "swatches")
+    }
     fn floating_title_header(&mut self, ui: &mut egui::Ui, _panels: &[String], active: &String) {
         let locked = self.app.session.prefs().workspace_locked;
+        // The three preset-library windows have a compact title strip; keep the rest of the
+        // floating panels' existing chrome unchanged.
+        let compact_picker = matches!(active.as_str(), "gradients" | "patterns" | "swatches");
+        let close_size = if compact_picker { egui::vec2(18.0, 15.0) } else { egui::vec2(18.0, 22.0) };
         ui.spacing_mut().button_padding = egui::vec2(0.0, 0.0);
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
-        ui.spacing_mut().interact_size = egui::vec2(18.0, 22.0);
+        ui.spacing_mut().interact_size = close_size;
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let response = ui.add_enabled_ui(!locked, |ui| ui.add_sized(egui::vec2(18.0, 22.0), egui::Button::new("×"))).inner;
-            if response.on_hover_text(tl!("Close Panel")).clicked() {
+            let response = if compact_picker {
+                ui.add_enabled_ui(!locked, |ui| {
+                    let (rect, response) = ui.allocate_exact_size(close_size, egui::Sense::click());
+                    if response.hovered() {
+                        ui.painter().rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
+                    }
+                    ui.painter().text(
+                        rect.center() - egui::vec2(0.0, 1.0),
+                        egui::Align2::CENTER_CENTER,
+                        "×",
+                        egui::FontId::proportional(14.0),
+                        ui.visuals().text_color(),
+                    );
+                    response
+                }).inner
+            } else {
+                ui.add_sized(close_size, egui::Button::new("×"))
+            };
+            let response = response.on_hover_text(tl!("Close Panel"));
+            if response.clicked() {
                 self.commands.push(("window.panel.group", json!({"panel":active,"operation":"close"})));
             }
         });
