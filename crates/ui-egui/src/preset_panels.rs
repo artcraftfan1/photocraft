@@ -1897,8 +1897,7 @@ mod tests {
 
         use egui_kittest::Harness;
 
-        let mut st = PresetUi::default();
-        st.renaming = Some(("short-rename".into(), "preset-key".into(), "Preset name".into()));
+        let mut st = PresetUi { renaming: Some(("short-rename".into(), "preset-key".into(), "Preset name".into())), ..Default::default() };
         let groups = Vec::<GroupView>::new();
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let mut adapter = BrowserAdapter {
