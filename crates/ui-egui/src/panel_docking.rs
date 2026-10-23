@@ -934,7 +934,8 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
                         ui.visuals().text_color(),
                     );
                     response
-                }).inner
+                })
+                .inner
             } else {
                 ui.add_sized(close_size, egui::Button::new("×"))
             };

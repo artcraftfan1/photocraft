@@ -166,7 +166,9 @@ pub trait DockContent<P> {
         logical.into()
     }
     fn panel_menu(&mut self, _ui: &mut Ui, _panel: &P) {}
-    fn has_floating_title(&self, _panels: &[P], _active: &P) -> bool { false }
+    fn has_floating_title(&self, _panels: &[P], _active: &P) -> bool {
+        false
+    }
     /// Render controls in the title bar of a floating group that opts into title bars.
     fn floating_title_header(&mut self, _ui: &mut Ui, _panels: &[P], _active: &P) {}
     fn group_header_width(&self, _panels: &[P], _active: &P, _floating: bool) -> f32 {
@@ -429,9 +431,7 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
                     self.tab(ui, &entry.panel, title_rect, entry.open, panel_rect);
                     let collapse = Rect::from_min_max(pos2((title_rect.right() - 18.0).max(title_rect.left()), title_rect.top()), title_rect.max);
                     let response = ui.interact(collapse, self.id.with(("collapse", &entry.panel)), Sense::click());
-                    response.widget_info(|| {
-                        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), entry.open, (self.label)(&entry.panel))
-                    });
+                    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), entry.open, (self.label)(&entry.panel)));
                     ui.painter().with_clip_rect(collapse).text(
                         collapse.center(),
                         egui::Align2::CENTER_CENTER,
@@ -548,8 +548,7 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
             return;
         }
         ui.painter().rect_filled(rect, 0.0, self.style.background);
-        let mut child =
-            ui.new_child(UiBuilder::new().id(self.id.with(("body", panel))).max_rect(rect).layout(egui::Layout::top_down(egui::Align::Min)));
+        let mut child = ui.new_child(UiBuilder::new().id(self.id.with(("body", panel))).max_rect(rect).layout(egui::Layout::top_down(egui::Align::Min)));
         child.set_clip_rect(rect.intersect(ui.clip_rect()));
         self.content.body(&mut child, panel);
         if child.rect_contains_pointer(rect) && child.input(|i| i.pointer.primary_pressed()) {
@@ -564,30 +563,18 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
         let bare = panels.len() == 1 && policy == Permissions::PROTECTED;
         if bare {
             self.contents(ui, selected, rect);
-            self.targets.push(DropTarget {
-                anchor: selected.clone(),
-                rect,
-                tab_strip: None,
-                tabs: Vec::new(),
-                allow_splits: !floating,
-                accepts_tabs: false,
-            });
+            self.targets.push(DropTarget { anchor: selected.clone(), rect, tab_strip: None, tabs: Vec::new(), allow_splits: !floating, accepts_tabs: false });
             return;
         }
         let title_bar = floating && self.content.has_floating_title(panels, selected);
         let title_height = if title_bar { self.content.floating_title_height(panels, selected).clamp(0.0, 4096.0).min(rect.height()) } else { 0.0 };
         let title_rect = Rect::from_min_max(rect.min, pos2(rect.right(), rect.top() + title_height));
-        let strip = Rect::from_min_max(
-            pos2(rect.left(), title_rect.bottom()),
-            pos2(rect.right(), (title_rect.bottom() + self.style.tab_height).min(rect.bottom())),
-        );
+        let strip =
+            Rect::from_min_max(pos2(rect.left(), title_rect.bottom()), pos2(rect.right(), (title_rect.bottom() + self.style.tab_height).min(rect.bottom())));
         ui.painter().rect_filled(strip, 0.0, self.style.tab_background);
         if title_bar {
             ui.painter().rect_filled(title_rect, egui::CornerRadius::same(3), self.style.tab_background);
-            ui.painter().line_segment(
-                [pos2(title_rect.left(), title_rect.bottom()), pos2(title_rect.right(), title_rect.bottom())],
-                self.style.border,
-            );
+            ui.painter().line_segment([pos2(title_rect.left(), title_rect.bottom()), pos2(title_rect.right(), title_rect.bottom())], self.style.border);
         }
 
         let requested = self.content.group_header_width(panels, selected, floating);
@@ -649,8 +636,11 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
         let drag_right = strip.right() - tab_header_width;
         if floating && x < drag_right {
             let drag_strip = Rect::from_min_max(pos2(x, strip.top()), pos2(drag_right, strip.bottom()));
-            let response = ui.interact(drag_strip, self.id.with(("move-group", panels.first())), Sense::drag())
-                .on_hover_cursor(if move_cursor { egui::CursorIcon::Grab } else { egui::CursorIcon::Default });
+            let response = ui.interact(drag_strip, self.id.with(("move-group", panels.first())), Sense::drag()).on_hover_cursor(if move_cursor {
+                egui::CursorIcon::Grab
+            } else {
+                egui::CursorIcon::Default
+            });
             self.register_interaction(ui.ctx(), response.id);
             response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &self.style.move_label));
             if panels.iter().all(|p| (self.permissions)(p).movable)
@@ -827,7 +817,8 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
                 let left_bottom = Rect::from_min_max(pos2(rect.left(), rect.bottom() - corner_size), pos2(rect.left() + corner_size, rect.bottom()));
                 let bottom_left = Rect::from_min_max(pos2(rect.left() + corner_size, rect.bottom() - edge), pos2(rect.right() - corner_size, rect.bottom()));
                 let bottom_right = Rect::from_min_max(pos2(rect.right() - corner_size, rect.bottom() - corner_size), rect.max);
-                let bottom_right_edge = Rect::from_min_max(pos2(rect.right() - edge, rect.top() + corner_size), pos2(rect.right(), rect.bottom() - corner_size));
+                let bottom_right_edge =
+                    Rect::from_min_max(pos2(rect.right() - edge, rect.top() + corner_size), pos2(rect.right(), rect.bottom() - corner_size));
                 let left_edge = Rect::from_min_max(pos2(rect.left(), rect.top() + corner_size), pos2(rect.left() + edge, rect.bottom() - corner_size));
                 // Each handle names the sides it moves. Corners take precedence over edges so
                 // their diagonal cursor and two-axis drag remain unambiguous.
@@ -848,26 +839,42 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
                     let mut delta = if response.dragged() { ui.input(|i| i.pointer.delta()) } else { Vec2::ZERO };
                     if handle_id == "resize-bottom-right" && response.has_focus() {
                         ui.memory_mut(|memory| {
-                            memory.set_focus_lock_filter(
-                                response.id,
-                                egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() },
-                            )
+                            memory
+                                .set_focus_lock_filter(response.id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() })
                         });
                         ui.input_mut(|input| {
-                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowLeft) { delta.x -= 8.0; }
-                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowRight) { delta.x += 8.0; }
-                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowUp) { delta.y -= 8.0; }
-                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowDown) { delta.y += 8.0; }
+                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowLeft) {
+                                delta.x -= 8.0;
+                            }
+                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowRight) {
+                                delta.x += 8.0;
+                            }
+                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowUp) {
+                                delta.y -= 8.0;
+                            }
+                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowDown) {
+                                delta.y += 8.0;
+                            }
                         });
                     }
                     if response.enabled() && delta != Vec2::ZERO {
                         let min = limits.min.max(vec2(40.0, self.style.tab_height + 20.0));
                         let max = limits.max.min(screen.size());
-                        let width = (rect.width() + if moves_left { -delta.x } else if moves_right { delta.x } else { 0.0 }).clamp(min.x, max.x);
+                        let width = (rect.width()
+                            + if moves_left {
+                                -delta.x
+                            } else if moves_right {
+                                delta.x
+                            } else {
+                                0.0
+                            })
+                        .clamp(min.x, max.x);
                         let height = (rect.height() + if moves_bottom { delta.y } else { 0.0 }).clamp(min.y, max.y);
                         let x = if moves_left { rect.right() - width } else { rect.left() };
                         let resized = clamp_float(Rect::from_min_size(pos2(x, rect.top()), vec2(width, height)), screen);
-                        self.output.actions.push(Action::MoveFloating { panel: first.clone(), rect: [resized.left(), resized.top(), resized.width(), resized.height()] });
+                        self.output
+                            .actions
+                            .push(Action::MoveFloating { panel: first.clone(), rect: [resized.left(), resized.top(), resized.width(), resized.height()] });
                     }
                     if response.dragged() {
                         let (a, b) = match handle_id {
@@ -909,8 +916,7 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
 
     fn finish_drag(&mut self, ctx: &Context) {
         let Some(drag) = ctx.data(|d| d.get_temp::<Drag<P>>(self.id.with("drag"))) else { return };
-        let (pointer, down, released, focused) =
-            ctx.input(|i| (i.pointer.interact_pos(), i.pointer.primary_down(), i.pointer.primary_released(), i.focused));
+        let (pointer, down, released, focused) = ctx.input(|i| (i.pointer.interact_pos(), i.pointer.primary_down(), i.pointer.primary_released(), i.focused));
         let escape = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape));
         if escape || !focused || !self.layout.contains(&drag.panel) || (!down && !released) {
             cancel_drag::<P>(ctx, self.id);
@@ -957,13 +963,7 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
         }
         let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, self.id.with("drop-preview")));
         if let Some(proposal) = proposal {
-            painter.rect(
-                proposal.preview.shrink(1.0),
-                0.0,
-                self.style.accent.gamma_multiply(0.15),
-                Stroke::new(2.0, self.style.accent),
-                StrokeKind::Inside,
-            );
+            painter.rect(proposal.preview.shrink(1.0), 0.0, self.style.accent.gamma_multiply(0.15), Stroke::new(2.0, self.style.accent), StrokeKind::Inside);
             if let Some(marker) = proposal.insertion {
                 painter.rect_filled(marker, 0.0, self.style.accent);
             }

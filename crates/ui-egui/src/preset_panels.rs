@@ -821,15 +821,7 @@ fn compact_context_menu_close_later(ui: &egui::Ui, panel: &str) {
     ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new(("compact-pattern-submenu-close", panel)), true));
 }
 
-fn compact_item_context_menu(
-    ui: &mut egui::Ui,
-    st: &mut PresetUi,
-    panel: &str,
-    item: &ItemView,
-    group: &GroupView,
-    group_names: &[String],
-    ev: &mut Vec<Ev>,
-) {
+fn compact_item_context_menu(ui: &mut egui::Ui, st: &mut PresetUi, panel: &str, item: &ItemView, group: &GroupView, group_names: &[String], ev: &mut Vec<Ev>) {
     if ui.button(tl!("Rename…")).clicked() {
         st.renaming = Some((panel.to_string(), item.key.clone(), item.name.clone()));
         compact_context_menu_close_later(ui, panel);

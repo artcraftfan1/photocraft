@@ -102,14 +102,17 @@ fn brush_texture_pattern_gear_menu_stays_open_when_pointer_leaves_it() {
         .pattern_groups
         .iter()
         .find_map(|group| {
-            group.items.first().and_then(|id| h.state().session.patterns.items.iter().find(|pattern| &pattern.id == id).map(|pattern| pattern.display_name().to_string()))
+            group
+                .items
+                .first()
+                .and_then(|id| h.state().session.patterns.items.iter().find(|pattern| &pattern.id == id).map(|pattern| pattern.display_name().to_string()))
         })
         .expect("a built-in Patterns group");
     h.run_steps(2);
 
     h.get_by_label("Browse…").click();
     h.run_steps(2);
-    h.get_by_label("Panel menu").click();
+    h.query_all_by_label("Panel menu").last().expect("compact pattern browser gear menu").click();
     h.run_steps(2);
     assert!(h.query_all_by_label("Small Thumbnail").count() > 0, "gear submenu should open");
 
@@ -119,7 +122,7 @@ fn brush_texture_pattern_gear_menu_stays_open_when_pointer_leaves_it() {
     h.run_steps(2);
     assert!(h.query_all_by_label("Small Thumbnail").count() > 0, "pointer movement alone must not dismiss the gear submenu");
 
-    h.get_by_label("Panel menu").click();
+    h.query_all_by_label("Panel menu").last().expect("compact pattern browser gear menu").click();
     h.run_steps(2);
     assert_eq!(h.query_all_by_label("Small Thumbnail").count(), 0, "clicking the gear again should dismiss its submenu");
 }

@@ -455,8 +455,7 @@ fn texture(
             if let Some(id) = egui::Popup::menu(&button)
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                 .show(|ui| {
-                    let max = (ui.ctx().content_rect().size() - vec2(40.0, 40.0))
-                        .max(vec2(180.0, 140.0));
+                    let max = (ui.ctx().content_rect().size() - vec2(40.0, 40.0)).max(vec2(180.0, 140.0));
                     egui::Resize::default()
                         .id(egui::Id::new("brush-texture-pattern-browser-resize"))
                         .with_stroke(false)
