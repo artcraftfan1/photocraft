@@ -70,12 +70,11 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let canvas = app.last_canvas_rect;
     let mut st = std::mem::take(&mut app.ui.presets_ui);
     st.sizes.entry(PANEL.to_string()).or_insert(DEFAULT_SIZE);
-    let max_h = (ui.available_height() - 30.0).max(60.0);
     // Flat, touching squares, as in Photoshop's Swatches panel (#5103).
     let mut adapter = BrowserAdapter {
         panel: PANEL,
         groups: &groups,
-        options: BrowserOptions { canvas, max_h, flush: true },
+        options: BrowserOptions { canvas, flush: true },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
@@ -85,12 +84,8 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.painter().rect_filled(r, CornerRadius::ZERO, c);
         },
     };
-    let events = picker_shell(
-        ui,
-        &mut st,
-        &mut adapter,
-        ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new swatch"))), placeholder_controls: true, ..Default::default() },
-    );
+    let events =
+        picker_shell(ui, &mut st, &mut adapter, ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new swatch"))), ..Default::default() });
     app.ui.presets_ui = st;
     let mods = ui.input(|i| i.modifiers);
     for e in events {

@@ -64,10 +64,10 @@ impl Edit {
         self.commit |= o.commit;
     }
     fn discrete(changed: bool) -> Self {
-        Edit { changed, commit: changed, ..Default::default() }
+        Edit { changed, commit: changed }
     }
     fn of(r: &egui::Response) -> Self {
-        Edit { changed: r.changed(), commit: r.drag_stopped() || (r.changed() && !r.dragged()), ..Default::default() }
+        Edit { changed: r.changed(), commit: r.drag_stopped() || (r.changed() && !r.dragged()) }
     }
 }
 

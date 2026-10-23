@@ -465,19 +465,10 @@ fn texture(
                         .max_size(max)
                         .show(ui, |ui| {
                             let browser_h = ui.available_height();
-                            crate::preset_panels::compact_pattern_browser(
-                                ui,
-                                patterns,
-                                groups,
-                                selected_pattern,
-                                "brush-texture-patterns",
-                                browser_h,
-                                true,
-                            )
+                            crate::preset_panels::compact_pattern_browser(ui, patterns, groups, selected_pattern, "brush-texture-patterns", browser_h)
                         })
                 })
-                .map(|r| r.inner)
-                .flatten()
+                .and_then(|r| r.inner)
             {
                 *picked_pattern = Some(id);
             }

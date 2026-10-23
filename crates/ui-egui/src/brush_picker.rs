@@ -282,8 +282,6 @@ pub fn body(
             );
         });
     };
-    // Re-enable the recent-items strip when it is implemented.
-    // let mut recents = |ui: &mut egui::Ui| crate::preset_panels::recent_strip_placeholder(ui);
     let mut footer = |ui: &mut egui::Ui| {
         ui.add_space((size.y - (ui.cursor().min.y - top) - SLIDER_H).max(FOOTER_GAP));
         scale_slider(ui, &mut state.borrow_mut());

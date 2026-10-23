@@ -72,14 +72,6 @@ fn lenient_group_order<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMa
 }
 
 impl PresetUi {
-    pub(crate) fn shows_search(&self, panel: &str) -> bool {
-        self.search_visible.get(panel).copied().unwrap_or(true)
-    }
-
-    pub(crate) fn shows_recents(&self, panel: &str) -> bool {
-        self.recents_visible.get(panel).copied().unwrap_or(true)
-    }
-
     pub fn shape(&self) -> &str {
         if self.custom_shape.is_empty() { tl!("Heart") } else { &self.custom_shape }
     }
@@ -284,10 +276,9 @@ pub(crate) fn pattern_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui, selecte
         .show(|ui| {
             // Preserve six swatches across, with a dedicated settings strip beside the browser.
             ui.set_width(6.0 * (SWATCH + 4.0) + 28.0);
-            compact_pattern_browser(ui, pats, &groups, selected, "compact-pattern-picker", 240.0, false)
+            compact_pattern_browser(ui, pats, &groups, selected, "compact-pattern-picker", 240.0)
         })
-        .map(|r| r.inner)
-        .flatten();
+        .and_then(|r| r.inner);
     apply_compact_pattern_actions(app, "compact-pattern-picker", take_compact_pattern_actions(&ctx, "compact-pattern-picker"));
     picked.filter(|id| id != selected)
 }
@@ -301,7 +292,6 @@ pub(crate) fn compact_pattern_browser(
     selected: &str,
     panel: &'static str,
     max_h: f32,
-    _show_placeholder_rows: bool,
 ) -> Option<String> {
     let ctx = ui.ctx().clone();
     let t = Tokens::get(&ctx);
@@ -318,10 +308,6 @@ pub(crate) fn compact_pattern_browser(
     });
     state.selected.insert(panel.into(), selected.to_string());
     state.sizes.entry(panel.into()).or_insert(40.0);
-    // Re-enable the compact search/recent rows once their controls are implemented.
-    // if show_placeholder_rows {
-    //     draw_placeholder_rows(ui, &mut state, panel, true);
-    // }
     let browser_h = max_h.min(ui.available_height());
     let parent_menu_id = egui::containers::menu::MenuState::from_ui(ui, |_, stack| stack.id);
     let close_pending_id = egui::Id::new(("compact-pattern-submenu-close", panel));
@@ -335,7 +321,7 @@ pub(crate) fn compact_pattern_browser(
     let mut adapter = BrowserAdapter {
         panel,
         groups,
-        options: BrowserOptions { canvas: Rect::NOTHING, max_h, flush: false },
+        options: BrowserOptions { canvas: Rect::NOTHING, flush: false },
         capabilities: BrowserCapabilities { item_drag: false, group_drag: false, selection: true, activation: true },
         item_context_menu: Some(compact_item_context_menu),
         group_context_menu: Some(compact_group_context_menu),
@@ -417,16 +403,6 @@ pub(crate) fn compact_pattern_browser(
                             ui.ctx().data_mut(|data| data.insert_temp(close_pending_id, true));
                         }
                     }
-                    // Re-enable this menu entry when the recent-items strip is implemented.
-                    /*
-                    if show_placeholder_rows {
-                        ui.separator();
-                        let mut recents_visible = state.shows_recents(panel);
-                        if ui.checkbox(&mut recents_visible, tl!("Recent Strip")).changed() {
-                            state.recents_visible.insert(panel.into(), recents_visible);
-                        }
-                    }
-                    */
                 });
                 // `SubMenu::show` clears `open_item` on hover-leave. Restore it unless this
                 // frame explicitly requested a close, so pointer movement alone is harmless.
@@ -680,8 +656,6 @@ const FOOTER_GUESS: f32 = 32.0;
 pub(crate) struct BrowserOptions {
     /// Canvas hit region used to distinguish drops onto the canvas from drops into the browser.
     pub(crate) canvas: Rect,
-    /// Maximum browser height for standalone browser use; picker shells allocate their remaining height.
-    pub(crate) max_h: f32,
     /// Use touching, square-cornered grid cells rather than spaced preset cards.
     pub(crate) flush: bool,
 }
@@ -922,8 +896,6 @@ pub(crate) struct ShellOptions<'a> {
     pub(crate) footer: Option<FooterOptions<'a>>,
     /// Consumer-owned footer renderer plus the height it reserves in the browser viewport.
     pub(crate) custom_footer: Option<CustomFooter<'a>>,
-    /// Show the placeholder search/recent rows and their hamburger visibility menu.
-    pub(crate) placeholder_controls: bool,
 }
 
 type CustomFooter<'a> = (&'a mut dyn FnMut(&mut egui::Ui), f32);
@@ -941,7 +913,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
     let t = Tokens::get(ui.ctx());
     let panel = adapter.panel;
     let groups = adapter.groups;
-    let BrowserOptions { canvas, flush, .. } = adapter.options;
+    let BrowserOptions { canvas, flush } = adapter.options;
     let capabilities = adapter.capabilities;
     let item_context_menu = adapter.item_context_menu;
     let group_context_menu = adapter.group_context_menu;
@@ -1167,10 +1139,6 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
 /// the responsibility of the caller that consumes the returned events.
 pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut BrowserAdapter<'_>, mut shell: ShellOptions<'_>) -> Vec<Ev> {
     let panel = adapter.panel.to_string();
-    // Keep the shared placeholder layout available for when search and recents are implemented.
-    // if shell.placeholder_controls {
-    //     draw_placeholder_rows(ui, st, &panel, false);
-    // }
     shell_controls(ui, &mut shell);
 
     let footer_id = egui::Id::new(("preset-footer", panel.as_str()));
@@ -1216,41 +1184,6 @@ pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut B
         }
     }
     events
-}
-
-/// Draw the search/recent placeholders and their independent visibility toggles. Compact popups use
-/// the same rows but keep the toggles in their existing gear submenu.
-fn draw_placeholder_rows(ui: &mut egui::Ui, st: &mut PresetUi, panel: &str, compact: bool) {
-    let ctx = ui.ctx().clone();
-    // The compact popup browser does not support search; only the recent-strip placeholder is
-    // available there. The standard picker gets its controls from its existing panel menu.
-    let search_visible = !compact && st.shows_search(panel);
-    let recents_visible = st.shows_recents(panel);
-    let t = Tokens::get(&ctx);
-    let width = (ui.available_width() - if compact { 28.0 } else { 0.0 }).max(0.0);
-    if search_visible {
-        let (rect, _) = ui.allocate_exact_size(vec2(width, 22.0), Sense::hover());
-        ui.painter().rect_filled(rect, 3.0, t.field);
-        ui.painter().rect_stroke(rect, 3.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
-        crate::icons::paint(ui, Rect::from_min_size(rect.min + vec2(6.0, 3.0), vec2(16.0, 16.0)), "search", 14.0, t.text_faint);
-        ui.painter().text(rect.min + vec2(27.0, rect.height() / 2.0), Align2::LEFT_CENTER, tl!("Search"), FontId::proportional(11.5), t.text_faint);
-        ui.add_space(3.0);
-    }
-    if recents_visible {
-        let (rect, _) = ui.allocate_exact_size(vec2(width, 16.0), Sense::hover());
-        ui.painter().rect_filled(rect, 2.0, t.field);
-        ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
-        ui.add_space(4.0);
-    }
-}
-
-/// Recent-strip placeholder for pickers whose search row is already functional.
-pub(crate) fn recent_strip_placeholder(ui: &mut egui::Ui) {
-    let t = Tokens::get(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::hover());
-    ui.painter().rect_filled(rect, 2.0, t.field);
-    ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
-    ui.add_space(4.0);
 }
 
 /// Shared shell layout for consumers with a specialised browser renderer. The shell owns the
@@ -1380,11 +1313,10 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         .collect();
     let canvas = canvas_drop_rect(app);
     let mut st = std::mem::take(&mut app.ui.presets_ui);
-    let max_h = (ui.available_height() - 40.0).clamp(90.0, 260.0);
     let mut adapter = BrowserAdapter {
         panel: "gradients",
         groups: &groups,
-        options: BrowserOptions { canvas, max_h, flush: false },
+        options: BrowserOptions { canvas, flush: false },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
@@ -1394,12 +1326,8 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             paint_gradient(ui, r, &stops);
         },
     };
-    let events = picker_shell(
-        ui,
-        &mut st,
-        &mut adapter,
-        ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new gradient"))), placeholder_controls: true, ..Default::default() },
-    );
+    let events =
+        picker_shell(ui, &mut st, &mut adapter, ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new gradient"))), ..Default::default() });
     app.ui.presets_ui = st;
     for e in events {
         match &e {
@@ -1426,12 +1354,11 @@ pub fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let groups = pattern_group_views(&lib, &app.session.presets.pattern_groups);
     let canvas = canvas_drop_rect(app);
     let mut st = std::mem::take(&mut app.ui.presets_ui);
-    let max_h = (ui.available_height() - 40.0).clamp(90.0, 280.0);
     let ctx = ui.ctx().clone();
     let mut adapter = BrowserAdapter {
         panel: "patterns",
         groups: &groups,
-        options: BrowserOptions { canvas, max_h, flush: false },
+        options: BrowserOptions { canvas, flush: false },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
@@ -1447,7 +1374,7 @@ pub fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui,
         &mut st,
         &mut adapter,
-        ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new pattern from the selection"))), placeholder_controls: true, ..Default::default() },
+        ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new pattern from the selection"))), ..Default::default() },
     );
     app.ui.presets_ui = st;
     for e in events {
@@ -1547,7 +1474,7 @@ pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut adapter = BrowserAdapter {
         panel: "styles",
         groups: &groups,
-        options: BrowserOptions { canvas, max_h: 300.0, flush: false },
+        options: BrowserOptions { canvas, flush: false },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
@@ -1599,7 +1526,7 @@ pub fn shapes_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut adapter = BrowserAdapter {
         panel: "shapes",
         groups: &groups,
-        options: BrowserOptions { canvas, max_h: 300.0, flush: false },
+        options: BrowserOptions { canvas, flush: false },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
@@ -2114,7 +2041,7 @@ mod tests {
         let mut adapter = BrowserAdapter {
             panel: "short-library",
             groups: &groups,
-            options: BrowserOptions { canvas: Rect::NOTHING, max_h: 180.0, flush: false },
+            options: BrowserOptions { canvas: Rect::NOTHING, flush: false },
             capabilities: BrowserCapabilities::default(),
             item_context_menu: Some(standard_item_context_menu),
             group_context_menu: Some(standard_group_context_menu),
@@ -2145,7 +2072,7 @@ mod tests {
         let mut adapter = BrowserAdapter {
             panel: "short-rename",
             groups: &groups,
-            options: BrowserOptions { canvas: Rect::NOTHING, max_h: 180.0, flush: false },
+            options: BrowserOptions { canvas: Rect::NOTHING, flush: false },
             capabilities: BrowserCapabilities::default(),
             item_context_menu: Some(standard_item_context_menu),
             group_context_menu: Some(standard_group_context_menu),
@@ -2229,7 +2156,7 @@ mod tests {
         let mut adapter = BrowserAdapter {
             panel: "compact-library",
             groups: &groups,
-            options: BrowserOptions { canvas: Rect::NOTHING, max_h: 260.0, flush: false },
+            options: BrowserOptions { canvas: Rect::NOTHING, flush: false },
             capabilities: BrowserCapabilities { item_drag: false, group_drag: false, selection: false, activation: false },
             item_context_menu: None,
             group_context_menu: None,
@@ -2293,7 +2220,7 @@ mod tests {
         let (id, name) = (first.key.clone(), first.name.clone());
         let mut h = Harness::builder().with_size(vec2(320.0, 240.0)).build_ui_state(
             move |ui, picked: &mut Option<String>| {
-                if let Some(id) = compact_pattern_browser(ui, &patterns, &groups, "", "compact-test", 180.0, false) {
+                if let Some(id) = compact_pattern_browser(ui, &patterns, &groups, "", "compact-test", 180.0) {
                     *picked = Some(id);
                 }
             },
@@ -2319,7 +2246,7 @@ mod tests {
         let state_id = egui::Id::new(("compact-pattern-browser", panel));
         let mut h = Harness::builder().with_size(vec2(320.0, 240.0)).build_ui_state(
             move |ui, _picked: &mut Option<String>| {
-                let _ = compact_pattern_browser(ui, &patterns, &groups, "", panel, 180.0, false);
+                let _ = compact_pattern_browser(ui, &patterns, &groups, "", panel, 180.0);
             },
             None::<String>,
         );
@@ -2386,7 +2313,7 @@ mod tests {
         let mut adapter = BrowserAdapter {
             panel: "consumer-actions",
             groups: &groups,
-            options: BrowserOptions { canvas: Rect::NOTHING, max_h: 180.0, flush: false },
+            options: BrowserOptions { canvas: Rect::NOTHING, flush: false },
             capabilities: BrowserCapabilities::default(),
             item_context_menu: Some(consumer_item_menu),
             group_context_menu: Some(consumer_group_menu),
