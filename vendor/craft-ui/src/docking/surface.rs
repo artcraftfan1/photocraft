@@ -607,6 +607,44 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
                 }
             }
         }
+        // Register a background drag target across the tab strip before rendering individual
+        // tabs. Tabs stay on top and retain their own click/reorder gestures; uncovered strip
+        // space can move the whole floating group. Keep the separate trailing grip below too:
+        // it is a stable, explicit target used by group-drag/drop behavior.
+        let drag_right = strip.right() - header_width;
+        let group_drag =
+            if floating && panels.iter().all(|p| (self.permissions)(p).movable) && strip.left() < drag_right {
+                let drag_strip = Rect::from_min_max(strip.min, pos2(drag_right, strip.bottom()));
+                let response = ui
+                    .interact(drag_strip, self.id.with(("move-group-background", panels.first())), Sense::drag())
+                    .on_hover_cursor(if move_cursor { egui::CursorIcon::Grab } else { egui::CursorIcon::Default });
+                self.register_interaction(ui.ctx(), response.id);
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &self.style.move_label));
+                Some(response)
+            } else {
+                None
+            };
+        if let Some(response) = group_drag {
+            if response.drag_started()
+                && let Some(first) = panels.first()
+            {
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(
+                        self.id.with("group-drag"),
+                        GroupDrag { panel: first.clone(), original: [rect.left(), rect.top(), rect.width(), rect.height()] },
+                    )
+                });
+            }
+            if response.dragged()
+                && ui.ctx().data(|d| d.get_temp::<GroupDrag<P>>(self.id.with("group-drag"))).is_some()
+                && !ui.input(|i| i.key_pressed(Key::Escape) || !i.focused)
+            {
+                let moved = clamp_float(rect.translate(ui.input(|i| i.pointer.delta())), ui.ctx().content_rect());
+                if let Some(first) = panels.first() {
+                    self.output.actions.push(Action::MoveFloating { panel: first.clone(), rect: [moved.left(), moved.top(), moved.width(), moved.height()] });
+                }
+            }
+        }
         let widths: Vec<f32> = panels
             .iter()
             .map(|p| {
@@ -618,8 +656,8 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
                     + 24.0
             })
             .collect();
-        // Keep room for the header controls in both bars: the title bar owns the controls,
-        // but the tab strip still needs an empty draggable segment at its right edge.
+        // Keep room for the header controls in both bars; their hit targets must stay above
+        // the strip's background drag target.
         let tab_header_width = header_width;
         let fit = tabs::fit(&widths, active, (strip.width() - tab_header_width).max(0.0), 40.0, 22.0);
         let mut x = strip.left();
@@ -631,9 +669,8 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
             targets.push((panel.clone(), tab));
             x += width;
         }
-        // Keep tab hit areas available for click-and-drag. Only the unused title-strip
-        // segment after the visible tabs starts a floating-group drag.
-        let drag_right = strip.right() - tab_header_width;
+        // A trailing grip is rendered after the tabs so it remains a directly targetable
+        // group-drag affordance and does not depend on background-hit priority.
         if floating && x < drag_right {
             let drag_strip = Rect::from_min_max(pos2(x, strip.top()), pos2(drag_right, strip.bottom()));
             let response = ui.interact(drag_strip, self.id.with(("move-group", panels.first())), Sense::drag()).on_hover_cursor(if move_cursor {

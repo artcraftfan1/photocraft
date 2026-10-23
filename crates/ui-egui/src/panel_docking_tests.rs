@@ -730,6 +730,23 @@ fn floating_panel_tab_strip_remains_draggable_when_its_menu_is_open() {
 }
 
 #[test]
+fn floating_tab_strip_drag_target_covers_the_full_strip_behind_tabs() {
+    let mut app = app();
+    app.run("window.panel.float", json!({"panel":"swatches","x":40,"y":60,"width":300,"height":300})).unwrap();
+    let h = harness(app, vec2(1280.0, 800.0));
+    let area = egui::Id::new("photocraft-panel-docking").with(("floating", &"swatches".to_string()));
+    let floating = h.ctx.memory(|memory| memory.area_rect(area)).unwrap();
+    let drag = h
+        .ctx
+        .read_response(egui::Id::new("photocraft-panel-docking").with(("move-group-background", Some(&"swatches".to_string()))))
+        .expect("floating tab-strip drag target");
+    let expected_strip_top = floating.top() + 15.0;
+    assert!((drag.rect.left() - floating.left()).abs() < 0.5, "drag target should start at the left edge of the tab strip: {:?}", drag.rect);
+    assert!((drag.rect.top() - expected_strip_top).abs() < 0.5, "drag target should cover the tab strip: {:?}", drag.rect);
+    assert!((drag.rect.right() - (floating.right() - 28.0)).abs() < 0.5, "menu controls must remain outside the drag target: {:?}", drag.rect);
+}
+
+#[test]
 fn floating_regular_panel_title_remains_draggable_when_its_menu_is_open() {
     let mut app = app();
     app.run("window.panel.float", json!({"panel":"properties","x":40,"y":60,"width":300,"height":300})).unwrap();
