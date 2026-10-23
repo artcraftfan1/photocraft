@@ -3848,6 +3848,10 @@ curves	Smooth	スムーズ
 	Reset All Locked Settings	ロックされた設定をすべて初期化
 	Copy Texture to Other Tools	テクスチャを他のツールにコピー
 	ICO is limited to 256 × 256 pixels	ICO は 256 × 256 ピクセルまでです
+	Large Thumbnail	大きいサムネイル
+	Small Thumbnail	小さいサムネイル
+	Show Search Bar	検索バーを表示
+	Show recents	最近使った項目を表示
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	埋め込みプロファイルを使用 ({profile})
 	Convert to the working space ({profile})	作業用スペースに変換 ({profile})

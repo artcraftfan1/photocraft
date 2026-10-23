@@ -428,9 +428,9 @@ fn gear_menu(ui: &mut egui::Ui, current: Option<&str>, presets: &[BrushPreset], 
             }
         }
         ui.separator();
-        ui.checkbox(&mut st.picker_search_visible, tl!("Search Bar"));
+        ui.checkbox(&mut st.picker_search_visible, tl!("Show Search Bar"));
         // Re-enable when the recent-items strip is implemented.
-        // ui.checkbox(&mut st.picker_recents_visible, tl!("Recent Strip"));
+        // ui.checkbox(&mut st.picker_recents_visible, tl!("Show recents"));
         ui.separator();
         if ui.button(tl!("Import Brushes…")).clicked() {
             picks.push(Pick::Import);
