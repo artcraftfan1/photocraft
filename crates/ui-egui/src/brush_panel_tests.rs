@@ -93,6 +93,15 @@ fn brush_settings_texture_uses_compact_patterns_browser_and_keeps_panel_selectio
 fn brush_texture_pattern_gear_menu_stays_open_when_pointer_leaves_it() {
     use egui_kittest::kittest::Queryable;
 
+    fn click_at(h: &mut Harness<'static, PhotocraftApp>, pos: egui::Pos2) {
+        h.event(egui::Event::PointerMoved(pos));
+        h.run_steps(1);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.run_steps(1);
+        }
+    }
+
     let mut h = harness(0, 3);
     h.state_mut().session.tools.brush.texture.enabled = true;
     let pattern_name = h
@@ -112,19 +121,21 @@ fn brush_texture_pattern_gear_menu_stays_open_when_pointer_leaves_it() {
 
     h.get_by_label("Browse…").click();
     h.run_steps(2);
-    h.query_all_by_label("Panel menu").last().expect("compact pattern browser gear menu").click();
+    let gear = h.query_all_by_label("Panel menu").last().expect("compact pattern browser gear menu").rect().center();
+    click_at(&mut h, gear);
     h.run_steps(2);
-    assert!(h.query_all_by_label("Small Thumbnail").count() > 0, "gear submenu should open");
+    assert!(h.query_all_by_label("   Small Thumbnail").count() > 0, "gear submenu should open");
 
     // Move into the pattern browser, outside the gear submenu, without clicking.
     let outside_submenu = h.get_by_label(&pattern_name).rect().center();
     h.event(egui::Event::PointerMoved(outside_submenu));
     h.run_steps(2);
-    assert!(h.query_all_by_label("Small Thumbnail").count() > 0, "pointer movement alone must not dismiss the gear submenu");
+    assert!(h.query_all_by_label("   Small Thumbnail").count() > 0, "pointer movement alone must not dismiss the gear submenu");
 
-    h.query_all_by_label("Panel menu").last().expect("compact pattern browser gear menu").click();
+    let gear = h.query_all_by_label("Panel menu").last().expect("compact pattern browser gear menu").rect().center();
+    click_at(&mut h, gear);
     h.run_steps(2);
-    assert_eq!(h.query_all_by_label("Small Thumbnail").count(), 0, "clicking the gear again should dismiss its submenu");
+    assert_eq!(h.query_all_by_label("   Small Thumbnail").count(), 0, "clicking the gear again should dismiss its submenu");
 }
 
 #[test]
