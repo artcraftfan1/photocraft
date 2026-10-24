@@ -692,6 +692,44 @@ pub(crate) fn header_drop_before(rect: Rect, pointer: Pos2) -> bool {
     pointer.y < rect.top() + rect.height() / 3.0
 }
 
+/// Semantic destination for dragging a group or nested folder onto a hierarchy header. The shared
+/// browser owns the before-vs-into convention; each consumer translates this destination into its
+/// own command model.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum HierarchyDrop {
+    MoveGroup { group: String, folder: Vec<String>, before: Option<String> },
+    MoveInto { group: String, folder: Vec<String>, into: Option<(String, Vec<String>)>, before: Option<String> },
+}
+
+/// Resolve a group/folder header drop independently of UI hit testing or the consumer's command
+/// type. `edge` means insert before the target; otherwise nest inside it.
+pub(crate) fn hierarchy_folder_drop(src_group: &str, src_folder: &[String], target_group: &str, target_folder: &[String], edge: bool) -> Option<HierarchyDrop> {
+    if src_group == target_group && target_folder.starts_with(src_folder) {
+        return None;
+    }
+    let group = src_group.to_string();
+    let folder = src_folder.to_vec();
+    if !edge {
+        let parent = src_folder.split_last().map(|(_, p)| p);
+        if src_group == target_group && parent == Some(target_folder) {
+            return None;
+        }
+        return Some(HierarchyDrop::MoveInto { group, folder, into: Some((target_group.to_string(), target_folder.to_vec())), before: None });
+    }
+    match target_folder.split_last() {
+        None if src_folder.is_empty() => Some(HierarchyDrop::MoveGroup { group, folder, before: Some(target_group.to_string()) }),
+        None => Some(HierarchyDrop::MoveInto { group, folder, into: None, before: Some(target_group.to_string()) }),
+        Some((leaf, parent)) => {
+            let siblings = src_group == target_group && src_folder.split_last().map(|(_, p)| p) == Some(parent);
+            if siblings {
+                Some(HierarchyDrop::MoveGroup { group, folder, before: Some(leaf.clone()) })
+            } else {
+                Some(HierarchyDrop::MoveInto { group, folder, into: Some((target_group.to_string(), parent.to_vec())), before: Some(leaf.clone()) })
+            }
+        }
+    }
+}
+
 /// Project ordered items and their folder paths into a hierarchy, truncating paths at `max_depth`.
 ///
 /// Paths deeper than `max_depth` are truncated before grouping, so the view cannot recurse beyond

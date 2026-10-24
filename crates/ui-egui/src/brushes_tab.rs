@@ -582,29 +582,9 @@ const FOLDER_INDENT: f32 = 16.0;
 /// siblings); anywhere else it goes into that folder. `None` when the drop does nothing: onto
 /// itself, into one of its own folders, or into the folder it is already in.
 pub fn folder_drop(src_group: &str, src_folder: &[String], group: &str, folder: &[String], edge: bool) -> Option<Action> {
-    if src_group == group && folder.starts_with(src_folder) {
-        return None;
-    }
-    let src = (src_group.to_string(), src_folder.to_vec());
-    if !edge {
-        let parent = src_folder.split_last().map(|(_, p)| p);
-        if src_group == group && parent == Some(folder) {
-            return None;
-        }
-        return Some(Action::MoveInto { group: src.0, folder: src.1, into: Some((group.to_string(), folder.to_vec())), before: None });
-    }
-    match folder.split_last() {
-        // Before a top-level group: groups reorder; a nested folder moves out to the top level.
-        None if src_folder.is_empty() => Some(Action::MoveGroup { group: src.0, folder: src.1, before: Some(group.to_string()) }),
-        None => Some(Action::MoveInto { group: src.0, folder: src.1, into: None, before: Some(group.to_string()) }),
-        Some((leaf, parent)) => {
-            let sibling = src_group == group && src_folder.split_last().map(|(_, p)| p) == Some(parent);
-            if sibling {
-                Some(Action::MoveGroup { group: src.0, folder: src.1, before: Some(leaf.clone()) })
-            } else {
-                Some(Action::MoveInto { group: src.0, folder: src.1, into: Some((group.to_string(), parent.to_vec())), before: Some(leaf.clone()) })
-            }
-        }
+    match crate::preset_panels::hierarchy_folder_drop(src_group, src_folder, group, folder, edge)? {
+        crate::preset_panels::HierarchyDrop::MoveGroup { group, folder, before } => Some(Action::MoveGroup { group, folder, before }),
+        crate::preset_panels::HierarchyDrop::MoveInto { group, folder, into, before } => Some(Action::MoveInto { group, folder, into, before }),
     }
 }
 

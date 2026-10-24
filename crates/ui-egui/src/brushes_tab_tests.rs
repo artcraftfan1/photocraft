@@ -8,6 +8,34 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use super::*;
 
 #[test]
+fn shared_hierarchy_drop_contract_preserves_brush_folder_moves() {
+    let folder = |parts: &[&str]| parts.iter().map(|part| (*part).to_string()).collect::<Vec<_>>();
+
+    assert_eq!(
+        folder_drop("Imported", &folder(&["Soft"]), "Imported", &folder(&["Hard"]), false),
+        Some(Action::MoveInto { group: "Imported".into(), folder: folder(&["Soft"]), into: Some(("Imported".into(), folder(&["Hard"]))), before: None }),
+        "dropping on a folder body nests the dragged folder",
+    );
+    assert_eq!(
+        folder_drop("Imported", &folder(&["Soft"]), "Imported", &folder(&["Hard"]), true),
+        Some(Action::MoveGroup { group: "Imported".into(), folder: folder(&["Soft"]), before: Some("Hard".into()) }),
+        "dropping on a sibling folder edge reorders it",
+    );
+    assert_eq!(folder_drop("Imported", &folder(&["Soft"]), "Imported", &folder(&["Soft", "Nested"]), false), None);
+    assert_eq!(
+        folder_drop("Imported", &folder(&["Soft"]), "Other", &[], true),
+        Some(Action::MoveInto { group: "Imported".into(), folder: folder(&["Soft"]), into: None, before: Some("Other".into()) }),
+        "dropping a nested folder before a group lifts it to the top level",
+    );
+    assert_eq!(
+        folder_drop("Imported", &[], "Other", &[], true),
+        Some(Action::MoveGroup { group: "Imported".into(), folder: Vec::new(), before: Some("Other".into()) }),
+        "dropping a group edge reorders top-level groups",
+    );
+    assert_eq!(folder_drop("Imported", &folder(&["Soft"]), "Imported", &[], false), None, "dropping a folder into its own parent is a no-op");
+}
+
+#[test]
 fn shared_browser_projection_keeps_brush_folder_paths_and_identity() {
     let mut presets = photocraft_engine::Session::new().tools.presets;
     let preset = presets.first_mut().expect("built-in brush preset");
