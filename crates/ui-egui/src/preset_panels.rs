@@ -47,6 +47,10 @@ pub struct PresetUi {
     /// a list follow it in library order. Saved with the UI state.
     #[serde(rename = "groupOrder", alias = "group_order", deserialize_with = "lenient_group_order", skip_serializing_if = "BTreeMap::is_empty")]
     pub group_order: BTreeMap<String, Vec<String>>,
+    /// Parent group for nested asset groups, scoped per picker. Expansion stays keyed by group name,
+    /// so moving a group under a collapsed parent never resets the child's own open state.
+    #[serde(rename = "groupParent", alias = "group_parent", default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub group_parent: BTreeMap<String, BTreeMap<String, String>>,
     /// Visibility of the placeholder search row per picker. Missing entries default to visible.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub search_visible: BTreeMap<String, bool>,
@@ -113,11 +117,167 @@ impl PresetUi {
             self.group_order.insert(panel.to_string(), order);
         }
     }
+
+    /// Make `child` a child of `parent`, or a root group when `parent` is `None`. Reject cycles and
+    /// stale names; expansion keys intentionally remain unchanged across the move.
+    pub(crate) fn nest_group(&mut self, panel: &str, names: &[String], child: &str, parent: Option<&str>) {
+        if !names.iter().any(|n| n == child) || parent.is_some_and(|p| !names.iter().any(|n| n == p) || p == child) {
+            return;
+        }
+        let parents = self.group_parent.entry(panel.to_string()).or_default();
+        let mut ancestor = parent;
+        while let Some(name) = ancestor {
+            if name == child {
+                return;
+            }
+            ancestor = parents.get(name).map(String::as_str);
+        }
+        match parent {
+            Some(parent) => {
+                parents.insert(child.to_string(), parent.to_string());
+            }
+            None => {
+                parents.remove(child);
+            }
+        }
+        if parents.is_empty() {
+            self.group_parent.remove(panel);
+        }
+    }
+
+    /// Keep view-only hierarchy and expansion state attached to a group when its asset-library
+    /// name changes. The caller invokes this only after the asset rename command succeeds.
+    fn rename_group(&mut self, panel: &str, from: &str, to: &str) {
+        if from == to {
+            return;
+        }
+        if let Some(parents) = self.group_parent.get_mut(panel) {
+            if let Some(parent) = parents.remove(from) {
+                parents.insert(to.to_string(), parent);
+            }
+            for parent in parents.values_mut() {
+                if parent == from {
+                    *parent = to.to_string();
+                }
+            }
+            if parents.is_empty() {
+                self.group_parent.remove(panel);
+            }
+        }
+        if let Some(order) = self.group_order.get_mut(panel) {
+            for name in order {
+                if name == from {
+                    *name = to.to_string();
+                }
+            }
+        }
+        let old_prefix = format!("{panel}/{from}");
+        let new_prefix = format!("{panel}/{to}");
+        let renamed: Vec<String> = self
+            .toggled
+            .iter()
+            .filter_map(|key| {
+                key.strip_prefix(&old_prefix)
+                    .filter(|tail| tail.is_empty() || tail.starts_with('/'))
+                    .map(|tail| format!("{new_prefix}{tail}"))
+            })
+            .collect();
+        self.toggled.retain(|key| {
+            !key.strip_prefix(&old_prefix).is_some_and(|tail| tail.is_empty() || tail.starts_with('/'))
+        });
+        self.toggled.extend(renamed);
+    }
+
+    /// Detach children of a removed group and discard its ordering/expansion entries.
+    fn delete_group(&mut self, panel: &str, name: &str) {
+        if let Some(parents) = self.group_parent.get_mut(panel) {
+            parents.remove(name);
+            parents.retain(|_, parent| parent != name);
+            if parents.is_empty() {
+                self.group_parent.remove(panel);
+            }
+        }
+        if let Some(order) = self.group_order.get_mut(panel) {
+            order.retain(|group| group != name);
+            if order.is_empty() {
+                self.group_order.remove(panel);
+            }
+        }
+        let prefix = format!("{panel}/{name}");
+        self.toggled.retain(|key| {
+            !key.strip_prefix(&prefix).is_some_and(|tail| tail.is_empty() || tail.starts_with('/'))
+        });
+    }
+
+    /// Apply the Brushes panel's header-drop convention to asset groups: the upper third inserts
+    /// before the target at its sibling level; the remainder nests into the target. A root group
+    /// dropped onto a nested header's edge becomes a sibling of that nested group, not a root.
+    pub(crate) fn drop_group_on_header(&mut self, panel: &str, names: &[String], child: &str, target: &str, edge: bool) {
+        if child == target || !names.iter().any(|n| n == child) || !names.iter().any(|n| n == target) {
+            return;
+        }
+        if !edge {
+            self.nest_group(panel, names, child, Some(target));
+            return;
+        }
+        let target_parent = self.group_parent.get(panel).and_then(|parents| parents.get(target)).cloned();
+        let mut ancestor = target_parent.as_deref();
+        while let Some(name) = ancestor {
+            if name == child {
+                return;
+            }
+            ancestor = self.group_parent.get(panel).and_then(|parents| parents.get(name)).map(String::as_str);
+        }
+        self.nest_group(panel, names, child, target_parent.as_deref());
+        self.move_group(panel, names, child, Some(target));
+    }
+
+    /// Depth-first display order. Sibling order follows the existing per-panel order and corrupt
+    /// cycles/stale parent references safely fall back to root-level entries.
+    fn nested_display_order(&self, panel: &str, names: &[String]) -> Vec<(usize, usize)> {
+        fn visit(
+            st: &PresetUi,
+            panel: &str,
+            names: &[String],
+            ordered: &[usize],
+            parent: Option<&str>,
+            depth: usize,
+            seen: &mut BTreeSet<String>,
+            out: &mut Vec<(usize, usize)>,
+        ) {
+            for &i in ordered {
+                let Some(name) = names.get(i) else { continue };
+                let actual_parent = st.group_parent.get(panel).and_then(|m| m.get(name)).map(String::as_str).filter(|p| names.iter().any(|n| n == p));
+                if actual_parent != parent || !seen.insert(name.clone()) {
+                    continue;
+                }
+                out.push((i, depth));
+                if depth < MAX_GROUP_DEPTH {
+                    visit(st, panel, names, ordered, Some(name), depth + 1, seen, out);
+                }
+            }
+        }
+        let ordered = self.display_order(panel, names);
+        let mut out = Vec::new();
+        let mut seen = BTreeSet::new();
+        visit(self, panel, names, &ordered, None, 0, &mut seen, &mut out);
+        // Any malformed cycle is detached for display rather than disappearing.
+        for &i in &ordered {
+            if let Some(name) = names.get(i)
+                && !seen.contains(name)
+            {
+                out.push((i, 0));
+            }
+        }
+        out
+    }
+
 }
 
 const PANELS: [&str; 6] =
     ["window.panel.gradients", "window.panel.patterns", "window.panel.styles", "window.panel.shapes", "window.panel.toolPresets", "window.panel.cloneSource"];
 const MIN_THUMB: f32 = 20.0;
+const MAX_GROUP_DEPTH: usize = 32;
 
 /// Window-menu ids handled here.
 pub fn handles(id: &str) -> bool {
@@ -525,6 +685,13 @@ pub struct HierarchyFolder<'a, T> {
     pub count: usize,
 }
 
+/// Shared header hit convention for group/folder drags: the upper third is an insertion target;
+/// the remainder means "move inside". Keep this independent of the command model so each browser
+/// can dispatch through its existing preset-store or view-state actions.
+pub(crate) fn header_drop_before(rect: Rect, pointer: Pos2) -> bool {
+    pointer.y < rect.top() + rect.height() / 3.0
+}
+
 /// Project ordered items and their folder paths into a hierarchy, truncating paths at `max_depth`.
 ///
 /// Paths deeper than `max_depth` are truncated before grouping, so the view cannot recurse beyond
@@ -634,6 +801,8 @@ pub(crate) enum Ev {
     Delete(String),
     /// Move an item into the named group.
     Move(String, String),
+    /// Move an item into a group at a specific final insertion index.
+    MoveItem(String, String, Option<usize>),
     /// Rename a group from its current name to a new name.
     RenameGroup(String, String),
     /// Delete a group and its contents.
@@ -642,6 +811,53 @@ pub(crate) enum Ev {
     NewGroup,
     /// Request creation of a new item.
     New,
+}
+
+/// Shared payload for dragging an asset or one of its group/folder headers. Brushes and the
+/// standard preset pickers use the same payload and drop-indicator convention.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum AssetDrag {
+    Preset { scope: String, key: String },
+    Group { scope: String, name: String },
+    Folder { scope: String, group: String, folder: Vec<String> },
+}
+
+/// Shared collapsible group/folder row. The caller owns the toggle state and any context menu;
+/// both Brushes and the standard preset panels use this same hit target and visual treatment.
+pub(crate) fn asset_browser_header(
+    ui: &mut egui::Ui,
+    name: &str,
+    open: bool,
+    depth: usize,
+    count: Option<usize>,
+    height: f32,
+) -> (Rect, egui::Response) {
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
+    paint_asset_browser_header(ui, rect, open, name, depth, response.hovered() || response.dragged(), count);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, name));
+    (rect, response)
+}
+
+/// Shared asset hit target and insertion indicator. Consumer code still decides what a successful
+/// drop means, but both the Brushes hierarchy and standard preset pickers use identical payloads,
+/// target halves, and insertion-line visuals.
+pub(crate) fn asset_browser_item_target(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    rect: Rect,
+    scope: &str,
+    key: &str,
+    grid: bool,
+) -> (Option<AssetDrag>, Option<AssetDrag>) {
+    let t = Tokens::get(ui.ctx());
+    response.dnd_set_drag_payload(AssetDrag::Preset { scope: scope.to_string(), key: key.to_string() });
+    let hovered = response.dnd_hover_payload::<AssetDrag>().map(|payload| (*payload).clone());
+    if matches!(&hovered, Some(AssetDrag::Preset { scope: drag_scope, key: dragged }) if drag_scope.as_str() == scope && dragged.as_str() != key) {
+        let after = ui.ctx().pointer_interact_pos().is_some_and(|p| if grid { p.x > rect.center().x } else { p.y > rect.center().y });
+        crate::widgets::drop_line(ui, rect, after, grid, &t);
+    }
+    let released = response.dnd_release_payload::<AssetDrag>().map(|payload| (*payload).clone());
+    (hovered, released)
 }
 
 /// Initial expansion policy for a browser group, with explicit user toggles overriding the default.
@@ -982,12 +1198,13 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
     let scroll_height = (max_h - rename_row_height).max(0.0);
     let mut headers: Vec<(usize, Rect, String)> = Vec::new();
     let mut dropped: Option<(String, Pos2)> = None;
+    let mut browser_item_drop = false;
     // Folder drag (#3658): the order the folders are drawn in, and what the pointer is doing this
     // frame (the insertion line and the drop are resolved once every header is known).
     let mut drag: Option<(usize, Pos2)> = None;
     let mut released: Option<(usize, Pos2)> = None;
     let group_names: Vec<String> = groups.iter().map(|g| g.name.clone()).collect();
-    let display = st.display_order(panel, &group_names);
+    let display = st.nested_display_order(panel, &group_names);
     // The browser is the flexible middle region of a picker panel. Keep it at the allocated
     // height even when the library is short; otherwise the footer floats up and each consumer's
     // panel geometry depends on how many presets happen to be installed.
@@ -998,15 +1215,26 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
-            for &gi in &display {
+            let mut hidden_groups = BTreeSet::new();
+            for &(gi, depth) in &display {
                 let Some(g) = groups.get(gi) else { continue };
-                let open = group_open(st, panel, gi, &g.name);
-                let (hr, hresp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click_and_drag());
-                if let Some(paint) = paint_group.as_deref_mut() {
-                    paint(ui, hr, g, open, hresp.hovered() || hresp.dragged());
-                } else {
-                    paint_asset_browser_header(ui, hr, open, &g.name, 0, hresp.hovered() || hresp.dragged(), None);
+                let parent = st.group_parent.get(panel).and_then(|m| m.get(&g.name));
+                if parent.is_some_and(|p| hidden_groups.contains(p)) {
+                    hidden_groups.insert(g.name.clone());
+                    continue;
                 }
+                let open = group_open(st, panel, gi, &g.name);
+                if !open {
+                    hidden_groups.insert(g.name.clone());
+                }
+                let (hr, hresp) = if let Some(paint) = paint_group.as_deref_mut() {
+                    let (r, response) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click_and_drag());
+                    paint(ui, r, g, open, response.hovered() || response.dragged());
+                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, &g.name));
+                    (r, response)
+                } else {
+                    asset_browser_header(ui, &g.name, open, depth, None, 22.0)
+                };
                 if hresp.clicked() {
                     let k = format!("{panel}/{}", g.name);
                     if !st.toggled.remove(&k) {
@@ -1019,6 +1247,20 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                     } else {
                         context_menu_target(hresp.clone(), |ui| menu(ui, st, panel, g, &mut ev));
                     }
+                }
+                if let Some(dragged) = hresp.dnd_hover_payload::<AssetDrag>()
+                    && let AssetDrag::Preset { scope, key } = &*dragged
+                    && scope.as_str() == panel
+                    && groups.iter().any(|group| group.items.iter().any(|item| &item.key == key))
+                {
+                    ui.painter().rect_stroke(hr, t.radius_sm, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+                }
+                if let Some(dragged) = hresp.dnd_release_payload::<AssetDrag>()
+                    && let AssetDrag::Preset { scope, key } = &*dragged
+                    && scope.as_str() == panel
+                {
+                    ev.push(Ev::MoveItem(key.clone(), g.name.clone(), None));
+                    browser_item_drop = true;
                 }
                 if capabilities.group_drag
                     && hresp.dragged()
@@ -1045,147 +1287,184 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                     released = Some((gi, p));
                 }
                 headers.push((gi, hr, g.name.clone()));
-                if !open {
-                    continue;
-                }
-                let tree = hierarchy_tree(g.items.iter().map(|item| (item.folder.as_slice(), item)).collect(), 4);
-                let mut folder_toggles = Vec::new();
-                let toggled_folders = st.toggled.clone();
-                let mut is_folder_open =
-                    move |folder: &HierarchyFolder<'_, ItemView>| !toggled_folders.contains(&format!("{panel}/{}/{}", g.name, folder.path.join("/")));
-                let mut draw_folder = |ui: &mut egui::Ui, folder: &HierarchyFolder<'_, ItemView>, folder_open: bool, depth: usize| {
-                    let (fr, fresp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click());
-                    paint_asset_browser_header(
-                        ui,
-                        fr,
-                        folder_open,
-                        folder.path.last().map(String::as_str).unwrap_or(""),
-                        depth + 1,
-                        fresp.hovered(),
-                        Some(folder.count),
-                    );
-                    if fresp.clicked() {
-                        folder_toggles.push(format!("{panel}/{}/{}", g.name, folder.path.join("/")));
-                    }
-                };
-                let mut draw_items = |ui: &mut egui::Ui, items: &[&ItemView], depth: usize| {
-                    let w = ui.available_width();
-                    let indent = depth as f32 * 14.0;
-                    let pad = (if list { 0.0 } else { GRID_INSET }) + indent;
-                    let gap = if list || flush { 0.0 } else { GRID_GAP };
-                    let (cell, cols) = if list {
-                        (vec2((w - indent).max(0.0), 24.0), 1)
-                    } else {
-                        let cols = ((w - pad + gap) / (size + gap)).floor().max(1.0) as usize;
-                        (vec2(size, size), cols)
+                // Keep each group's assets directly beneath its header. The previous separate
+                // content pass placed every swatch after every group header, so expanding a group
+                // could not reveal its assets in the expected place.
+                if open {
+                    let tree = hierarchy_tree(g.items.iter().map(|item| (item.folder.as_slice(), item)).collect(), 4);
+                    let mut folder_toggles = Vec::new();
+                    let toggled_folders = st.toggled.clone();
+                    let mut is_folder_open =
+                        move |folder: &HierarchyFolder<'_, ItemView>| !toggled_folders.contains(&format!("{panel}/{}/{}", g.name, folder.path.join("/")));
+                    let mut draw_folder = |ui: &mut egui::Ui, folder: &HierarchyFolder<'_, ItemView>, folder_open: bool, folder_depth: usize| {
+                        let (fr, fresp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click());
+                        paint_asset_browser_header(
+                            ui,
+                            fr,
+                            folder_open,
+                            folder.path.last().map(String::as_str).unwrap_or(""),
+                            folder_depth + 1 + depth,
+                            fresp.hovered(),
+                            Some(folder.count),
+                        );
+                        if fresp.clicked() {
+                            folder_toggles.push(format!("{panel}/{}/{}", g.name, folder.path.join("/")));
+                        }
                     };
-                    let rows = items.len().div_ceil(cols);
-                    let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (cell.y + gap) + 2.0), Sense::hover());
-                    for (run_i, it) in items.iter().enumerate() {
-                        let ii = g.items.iter().position(|original| std::ptr::eq(original, *it)).unwrap_or(run_i);
-                        let (cx, cy) = ((run_i % cols) as f32, (run_i / cols) as f32);
-                        let r = Rect::from_min_size(area.min + vec2(pad + cx * (cell.x + gap), cy * (cell.y + gap)), cell);
-                        let resp = ui.interact(r, ui.id().with((panel, gi, ii)), Sense::click_and_drag());
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &it.name));
-                        let is_sel = selected.as_deref() == Some(&it.key);
-                        if list {
-                            if is_sel {
-                                ui.painter().rect_filled(r, 0.0, t.row_selected);
-                            } else if resp.hovered() {
-                                ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.5));
-                            }
-                            let tr = Rect::from_min_size(r.min + vec2(24.0, 2.0), vec2(20.0, 20.0));
-                            paint_item(ui, tr, gi, ii);
-                            ui.painter().text(pos2(tr.right() + 8.0, r.center().y), Align2::LEFT_CENTER, &it.name, FontId::proportional(11.5), t.text);
+                    let mut draw_items = |ui: &mut egui::Ui, items: &[&ItemView], folder_depth: usize| {
+                        let w = ui.available_width();
+                        let group_indent = depth as f32 * 14.0;
+                        let indent = folder_depth as f32 * 14.0;
+                        let pad = group_indent + (if list { 0.0 } else { GRID_INSET }) + indent;
+                        let gap = if list || flush { 0.0 } else { GRID_GAP };
+                        let (cell, cols) = if list {
+                            (vec2((w - group_indent - indent).max(0.0), 24.0), 1)
                         } else {
-                            paint_item(ui, r, gi, ii);
-                            // Touching cells draw no border of their own: only the selected and the
-                            // hovered one are outlined, over their neighbours, as in Photoshop.
-                            let stroke = if is_sel {
-                                Some((Stroke::new(2.0, t.accent), egui::StrokeKind::Outside))
-                            } else if resp.hovered() {
-                                Some((Stroke::new(1.0, t.text_dim), egui::StrokeKind::Outside))
-                            } else if flush {
-                                None
+                            let cols = ((w - pad + gap) / (size + gap)).floor().max(1.0) as usize;
+                            (vec2(size, size), cols)
+                        };
+                        let rows = items.len().div_ceil(cols);
+                        let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (cell.y + gap) + 2.0), Sense::hover());
+                        for (run_i, it) in items.iter().enumerate() {
+                            let ii = g.items.iter().position(|original| std::ptr::eq(original, *it)).unwrap_or(run_i);
+                            let (cx, cy) = ((run_i % cols) as f32, (run_i / cols) as f32);
+                            let r = Rect::from_min_size(area.min + vec2(pad + cx * (cell.x + gap), cy * (cell.y + gap)), cell);
+                            let resp = ui.interact(r, ui.id().with((panel, gi, ii)), Sense::click_and_drag());
+                            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &it.name));
+                            let is_sel = selected.as_deref() == Some(&it.key);
+                            if list {
+                                if is_sel {
+                                    ui.painter().rect_filled(r, 0.0, t.row_selected);
+                                } else if resp.hovered() {
+                                    ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.5));
+                                }
+                                let tr = Rect::from_min_size(r.min + vec2(24.0, 2.0), vec2(20.0, 20.0));
+                                paint_item(ui, tr, gi, ii);
+                                ui.painter().text(pos2(tr.right() + 8.0, r.center().y), Align2::LEFT_CENTER, &it.name, FontId::proportional(11.5), t.text);
                             } else {
-                                Some((Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside))
+                                paint_item(ui, r, gi, ii);
+                                // Touching cells draw no border of their own: only the selected and the
+                                // hovered one are outlined, over their neighbours, as in Photoshop.
+                                let stroke = if is_sel {
+                                    Some((Stroke::new(2.0, t.accent), egui::StrokeKind::Outside))
+                                } else if resp.hovered() {
+                                    Some((Stroke::new(1.0, t.text_dim), egui::StrokeKind::Outside))
+                                } else if flush {
+                                    None
+                                } else {
+                                    Some((Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside))
+                                };
+                                if let Some((stroke, kind)) = stroke {
+                                    ui.painter().rect_stroke(r, CornerRadius::same(if flush { 0 } else { 2 }), stroke, kind);
+                                }
+                            }
+                            let (_, released_drag) = if capabilities.item_drag {
+                                asset_browser_item_target(ui, &resp, r, panel, &it.key, !list)
+                            } else {
+                                (None, None)
                             };
-                            if let Some((stroke, kind)) = stroke {
-                                ui.painter().rect_stroke(r, CornerRadius::same(if flush { 0 } else { 2 }), stroke, kind);
+                            if let Some(AssetDrag::Preset { scope, key }) = released_drag
+                                && scope.as_str() == panel
+                                && key.as_str() != it.key.as_str()
+                            {
+                                browser_item_drop = true;
+                                let after = ui.ctx().pointer_interact_pos().is_some_and(|p| if list { p.y > r.center().y } else { p.x > r.center().x });
+                                let mut index = ii + usize::from(after);
+                                if let Some((source_group, source_index)) = groups.iter().enumerate().find_map(|(source_group, group)| {
+                                    group.items.iter().position(|item| item.key.as_str() == key.as_str()).map(|source_index| (source_group, source_index))
+                                }) && source_group == gi && source_index < index {
+                                    index = index.saturating_sub(1);
+                                }
+                                ev.push(Ev::MoveItem(key, g.name.clone(), Some(index)));
+                            }
+                            let hover = if it.folder.is_empty() { it.name.clone() } else { format!("{} / {}", it.folder.join(" / "), it.name) };
+                            let resp = resp.on_hover_text(hover);
+                            if capabilities.activation && resp.double_clicked() {
+                                ev.push(Ev::Activate(it.key.clone()));
+                            } else if capabilities.selection && resp.clicked() {
+                                ev.push(Ev::Select(it.key.clone()));
+                            }
+                            if capabilities.item_drag
+                                && resp.dragged()
+                                && let Some(pp) = ui.ctx().pointer_interact_pos()
+                            {
+                                // A ghost of the swatch follows the pointer.
+                                let lp = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("preset-drag")));
+                                let gr = Rect::from_center_size(pp, vec2(28.0, 28.0));
+                                lp.rect_filled(gr, 3.0, t.card.gamma_multiply(0.8));
+                                lp.rect_stroke(gr, 3.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Outside);
+                                lp.text(gr.center(), Align2::CENTER_CENTER, "+", FontId::proportional(16.0), t.accent);
+                            }
+                            if capabilities.item_drag
+                                && resp.drag_stopped()
+                                && let Some(pp) = ui.ctx().pointer_interact_pos()
+                                && !r.contains(pp)
+                                && canvas.contains(pp)
+                            {
+                                dropped = Some((it.key.clone(), pp));
+                            }
+                            if let Some(menu) = item_context_menu {
+                                if panel.starts_with("compact-") || panel == "brush-texture-patterns" {
+                                    compact_context_menu_target(ui, resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
+                                } else {
+                                    context_menu_target(resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
+                                }
                             }
                         }
-                        let hover = if it.folder.is_empty() { it.name.clone() } else { format!("{} / {}", it.folder.join(" / "), it.name) };
-                        let resp = resp.on_hover_text(hover);
-                        if capabilities.activation && resp.double_clicked() {
-                            ev.push(Ev::Activate(it.key.clone()));
-                        } else if capabilities.selection && resp.clicked() {
-                            ev.push(Ev::Select(it.key.clone()));
-                        }
-                        if capabilities.item_drag
-                            && resp.dragged()
-                            && let Some(pp) = ui.ctx().pointer_interact_pos()
-                        {
-                            // A ghost of the swatch follows the pointer.
-                            let lp = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("preset-drag")));
-                            let gr = Rect::from_center_size(pp, vec2(28.0, 28.0));
-                            lp.rect_filled(gr, 3.0, t.card.gamma_multiply(0.8));
-                            lp.rect_stroke(gr, 3.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Outside);
-                            lp.text(gr.center(), Align2::CENTER_CENTER, "+", FontId::proportional(16.0), t.accent);
-                        }
-                        if capabilities.item_drag
-                            && resp.drag_stopped()
-                            && let Some(pp) = ui.ctx().pointer_interact_pos()
-                            && !r.contains(pp)
-                        {
-                            dropped = Some((it.key.clone(), pp));
-                        }
-                        if let Some(menu) = item_context_menu {
-                            if panel.starts_with("compact-") || panel == "brush-texture-patterns" {
-                                compact_context_menu_target(ui, resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
-                            } else {
-                                context_menu_target(resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
-                            }
+                    };
+                    draw_hierarchy(ui, &tree, 0, 4, &mut is_folder_open, &mut draw_folder, &mut draw_items);
+                    for key in folder_toggles {
+                        if !st.toggled.remove(&key) {
+                            st.toggled.insert(key);
                         }
                     }
-                };
-                draw_hierarchy(ui, &tree, 0, 4, &mut is_folder_open, &mut draw_folder, &mut draw_items);
-                for key in folder_toggles {
-                    if !st.toggled.remove(&key) {
-                        st.toggled.insert(key);
-                    }
+
                 }
             }
-            // Insertion line while a folder is dragged by its header.
+            // Give the same before-vs-into feedback as the Brushes hierarchy while dragging a
+            // group. The target is resolved after all header rectangles have been collected.
             if let Some((from, p)) = drag {
-                let before = group_drop_before(&headers, from, p.y);
-                let anchor = match before {
-                    Some(i) => headers.iter().find(|(x, _, _)| *x == i).map(|(_, r, _)| *r),
-                    None => headers.last().map(|(_, r, _)| *r),
-                };
-                if let Some(r) = anchor {
-                    let y = if before.is_some() { r.top() - 1.0 } else { r.bottom() + 1.0 };
-                    ui.painter().line_segment([pos2(r.left(), y), pos2(r.right(), y)], Stroke::new(2.0, t.accent));
+                if let Some((_, r, _)) = headers.iter().find(|(i, r, _)| *i != from && r.contains(p)) {
+                    if header_drop_before(*r, p) {
+                        ui.painter().line_segment([pos2(r.left(), r.top() - 1.0), pos2(r.right(), r.top() - 1.0)], Stroke::new(2.0, t.accent));
+                    } else {
+                        ui.painter().rect_stroke(*r, t.radius_sm, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+                    }
+                } else {
+                    let before = group_drop_before(&headers, from, p.y);
+                    let anchor = match before {
+                        Some(i) => headers.iter().find(|(x, _, _)| *x == i).map(|(_, r, _)| *r),
+                        None => headers.last().map(|(_, r, _)| *r),
+                    };
+                    if let Some(r) = anchor {
+                        let y = if before.is_some() { r.top() - 1.0 } else { r.bottom() + 1.0 };
+                        ui.painter().line_segment([pos2(r.left(), y), pos2(r.right(), y)], Stroke::new(2.0, t.accent));
+                    }
                 }
             }
         });
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("preset-browser-rect", panel)), scroll.inner_rect));
     // Apply the drop now every header rect is known; the next frame draws the new order.
     if let Some((from, p)) = released {
-        let before = group_drop_before(&headers, from, p.y);
         let from_name = groups.get(from).map(|g| g.name.clone());
-        let before_name = before.and_then(|i| groups.get(i).map(|g| g.name.clone()));
         if let Some(from_name) = from_name {
-            st.move_group(panel, &group_names, &from_name, before_name.as_deref());
+            if let Some((_, rect, target)) = headers.iter().find(|(i, rect, _)| *i != from && rect.contains(p)) {
+                // Match the Brushes panel: the header's upper third means "before"; the rest
+                // means "inside". This also lets a nested group be moved back among its siblings.
+                let edge = header_drop_before(*rect, p);
+                st.drop_group_on_header(panel, &group_names, &from_name, target, edge);
+            } else {
+                let before = group_drop_before(&headers, from, p.y);
+                let before_name = before.and_then(|i| groups.get(i).map(|g| g.name.clone()));
+                st.nest_group(panel, &group_names, &from_name, None);
+                st.move_group(panel, &group_names, &from_name, before_name.as_deref());
+            }
         }
     }
     let recorded: Vec<(String, Rect)> = headers.iter().map(|(_, r, n)| (n.clone(), *r)).collect();
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("preset-group-headers", panel)), recorded));
-    if let Some((key, pos)) = dropped {
-        if let Some((_, _, g)) = headers.iter().find(|(_, r, _)| r.contains(pos)) {
-            ev.push(Ev::Move(key, g.clone()));
-        } else if canvas.contains(pos) {
-            ev.push(Ev::Drop(key, pos));
-        }
+    if let Some((key, pos)) = dropped.filter(|_| !browser_item_drop) {
+        ev.push(Ev::Drop(key, pos));
     }
     ev
 }
@@ -1323,8 +1602,23 @@ fn generic(app: &mut PhotocraftApp, panel: &str, prefix: &str, e: &Ev, new_param
             }
         }
         Ev::Move(k, g) => drop(run(app, &edit, json!({"action": "move", "preset": k, "to": g}))),
-        Ev::RenameGroup(g, n) => drop(run(app, &edit, json!({"action": "renameGroup", "group": g, "name": n}))),
-        Ev::DeleteGroup(g) => drop(run(app, &edit, json!({"action": "deleteGroup", "group": g}))),
+        Ev::MoveItem(k, g, index) => {
+            let mut params = json!({"action": "move", "preset": k, "to": g});
+            if let Some(index) = index {
+                params["index"] = json!(index);
+            }
+            drop(run(app, &edit, params));
+        }
+        Ev::RenameGroup(g, n) => {
+            if run(app, &edit, json!({"action": "renameGroup", "group": g, "name": n})).is_some() {
+                app.ui.presets_ui.rename_group(panel, g, n);
+            }
+        }
+        Ev::DeleteGroup(g) => {
+            if run(app, &edit, json!({"action": "deleteGroup", "group": g})).is_some() {
+                app.ui.presets_ui.delete_group(panel, g);
+            }
+        }
         Ev::NewGroup => {
             if let Some(r) = run(app, &edit, json!({"action": "newGroup", "name": "Group"})) {
                 let g = r["group"].as_str().unwrap_or_default().to_string();
@@ -1361,12 +1655,6 @@ fn canvas_drop_rect(app: &PhotocraftApp) -> egui::Rect {
 pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let (fg, bg) = (app.session.tools.foreground, app.session.tools.background);
     let groups_src = app.session.presets.gradients.clone();
-    // Current gradient (what the Gradient tool paints), like the panel's top "recent" row.
-    let cur = app.session.presets.gradient.clone();
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::hover());
-    paint_gradient(ui, r, &cur.resolve(fg, bg));
-    ui.painter().rect_stroke(r, 2.0, Stroke::new(1.0, Tokens::get(ui.ctx()).card_border), egui::StrokeKind::Inside);
-    ui.add_space(4.0);
     let groups: Vec<GroupView> = groups_src
         .iter()
         .map(|g| GroupView {
@@ -2091,6 +2379,81 @@ mod tests {
         let mut m = PresetUi::default();
         m.group_order.insert("swatches".into(), vec!["Dark".into(), "Grays".into()]);
         assert_eq!(m.display_order("swatches", &names), vec![3, 0, 1, 2]);
+    }
+
+    #[test]
+    fn nested_groups_keep_their_expansion_state_and_reject_cycles() {
+        let names: Vec<String> = ["Parent", "Child", "Grandchild", "Sibling"].iter().map(|s| s.to_string()).collect();
+        let mut st = PresetUi::default();
+        st.toggled.insert("gradients/Child".into()); // Child is expanded (non-default toggle).
+        st.nest_group("gradients", &names, "Child", Some("Parent"));
+        st.nest_group("gradients", &names, "Grandchild", Some("Child"));
+        st.nest_group("gradients", &names, "Parent", Some("Grandchild")); // would create a cycle
+
+        assert_eq!(st.group_parent["gradients"]["Child"], "Parent");
+        assert_eq!(st.group_parent["gradients"]["Grandchild"], "Child");
+        assert!(!st.group_parent["gradients"].contains_key("Parent"));
+        assert!(st.toggled.contains("gradients/Child"), "moving a group must not reset its open state");
+        assert_eq!(st.nested_display_order("gradients", &names), vec![(0, 0), (1, 1), (2, 2), (3, 0)]);
+        let saved = serde_json::to_value(&st).unwrap();
+        assert_eq!(saved["groupParent"]["gradients"]["Child"], "Parent");
+        assert!(saved.get("group_parent").is_none(), "saved UI state uses the stable camelCase key");
+        let legacy: PresetUi = serde_json::from_value(json!({"group_parent":{"gradients":{"Child":"Parent"}}})).unwrap();
+        assert_eq!(legacy.group_parent["gradients"]["Child"], "Parent");
+
+        st.group_order.insert("gradients".into(), names.clone());
+        st.toggled.insert("gradients/Parent/Inner".into());
+        st.rename_group("gradients", "Parent", "Renamed");
+        assert_eq!(st.group_parent["gradients"]["Child"], "Renamed");
+        assert_eq!(st.group_order["gradients"][0], "Renamed");
+        assert!(st.toggled.contains("gradients/Renamed/Inner"));
+        st.delete_group("gradients", "Renamed");
+        assert!(!st.group_parent["gradients"].contains_key("Child"), "children of a deleted group become roots");
+        assert!(!st.group_order["gradients"].iter().any(|name| name == "Renamed"));
+        assert!(!st.toggled.iter().any(|key| key.starts_with("gradients/Renamed")));
+
+        st.nest_group("gradients", &names, "Child", None);
+        assert!(!st.group_parent["gradients"].contains_key("Child"));
+    }
+
+    #[test]
+    fn nested_group_header_drop_matches_brush_folder_drop_convention() {
+        let names: Vec<String> = ["Parent", "Child", "Grandchild", "Sibling"].iter().map(|s| s.to_string()).collect();
+        let mut st = PresetUi::default();
+        st.nest_group("gradients", &names, "Child", Some("Parent"));
+        st.nest_group("gradients", &names, "Grandchild", Some("Child"));
+
+        // Dropping on the upper edge of a nested header inserts before it at the same level.
+        st.drop_group_on_header("gradients", &names, "Sibling", "Grandchild", true);
+        assert_eq!(st.group_parent["gradients"]["Sibling"], "Child");
+        assert_eq!(st.nested_display_order("gradients", &names), vec![(0, 0), (1, 1), (3, 2), (2, 2)]);
+
+        // Dropping on the body nests into the target, just like the Brushes panel.
+        st.drop_group_on_header("gradients", &names, "Sibling", "Parent", false);
+        assert_eq!(st.group_parent["gradients"]["Sibling"], "Parent");
+        // A source cannot be dropped before its own descendant, which would make a cycle.
+        st.drop_group_on_header("gradients", &names, "Parent", "Grandchild", true);
+        assert!(!st.group_parent["gradients"].contains_key("Parent"));
+    }
+
+    #[test]
+    fn extremely_deep_group_trees_are_bounded_and_remain_visible() {
+        let names: Vec<String> = (0..64).map(|i| format!("Group {i}")).collect();
+        let mut st = PresetUi::default();
+        for pair in names.windows(2) {
+            st.nest_group("gradients", &names, &pair[1], Some(&pair[0]));
+        }
+        let order = st.nested_display_order("gradients", &names);
+        assert_eq!(order.len(), names.len());
+        assert!(order.iter().all(|(_, depth)| *depth <= MAX_GROUP_DEPTH));
+    }
+
+    #[test]
+    fn shared_header_drop_edge_is_the_upper_third() {
+        let header = Rect::from_min_size(pos2(10.0, 20.0), vec2(120.0, 24.0));
+        assert!(header_drop_before(header, pos2(30.0, 25.0)));
+        assert!(!header_drop_before(header, pos2(30.0, 29.0)));
+        assert!(!header_drop_before(header, pos2(30.0, 40.0)));
     }
 
     #[test]

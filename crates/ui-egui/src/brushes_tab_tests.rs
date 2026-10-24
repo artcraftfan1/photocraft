@@ -48,7 +48,7 @@ fn dragging_a_brush_shows_its_tip_preview() {
             let end = start + vec2(50.0, 10.0);
             h.event(egui::Event::PointerMoved(end));
             h.run_steps(4);
-            assert!(matches!(egui::DragAndDrop::payload::<BrushDrag>(&h.ctx).as_deref(), Some(BrushDrag::Preset(n)) if n == &name));
+            assert!(matches!(egui::DragAndDrop::payload::<BrushDrag>(&h.ctx).as_deref(), Some(BrushDrag::Preset { scope, key }) if scope.as_str() == "brushes" && key == &name));
             assert!(h.query_by_role_and_label(Role::Image, &name).is_some(), "dragged brush needs a real tip thumbnail, not only its name");
             let renders = brush_preview::render_count(&h.ctx);
             h.run_steps(2);

@@ -25,21 +25,8 @@ use crate::preset_panels::{ShellOptions, picker_shell_custom};
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons, widgets};
 
-/// What a drag in the Brushes tab carries.
-#[derive(Clone, Debug, PartialEq)]
-pub enum BrushDrag {
-    /// A brush preset identified by its name.
-    Preset(String),
-    /// A top-level brush group identified by its key.
-    Group(String),
-    /// A nested folder, identified by its owning group and path.
-    Folder {
-        /// Key of the top-level group containing the folder.
-        group: String,
-        /// Folder path relative to that group; an empty path denotes the group itself.
-        folder: Vec<String>,
-    },
-}
+/// The Brushes panel uses the same drag payload as the shared preset browser.
+pub(crate) type BrushDrag = crate::preset_panels::AssetDrag;
 
 /// What a preset list does after drawing (the presets are borrowed while it draws).
 #[derive(Clone, Debug, PartialEq)]
@@ -275,19 +262,13 @@ fn second_half(ui: &egui::Ui, r: egui::Rect, grid: bool) -> bool {
 
 /// Drag, drop and context menu of one preset cell or row.
 fn preset_interactions(ui: &egui::Ui, resp: &egui::Response, r: egui::Rect, p: &BrushPreset, presets: &[BrushPreset], grid: bool, acts: &mut Vec<Action>) {
-    let t = Tokens::get(ui.ctx());
-    resp.dnd_set_drag_payload(BrushDrag::Preset(p.name.clone()));
-    if let Some(d) = resp.dnd_hover_payload::<BrushDrag>()
-        && matches!(&*d, BrushDrag::Preset(n) if *n != p.name)
+    let (_, released) = crate::preset_panels::asset_browser_item_target(ui, resp, r, "brushes", &p.name, grid);
+    if let Some(BrushDrag::Preset { scope, key: n }) = released
+        && scope.as_str() == "brushes"
+        && n.as_str() != p.name.as_str()
+        && let Some((group, folder, index)) = drop_target(presets, &n, &p.name, second_half(ui, r, grid))
     {
-        widgets::drop_line(ui, r, second_half(ui, r, grid), grid, &t);
-    }
-    if let Some(d) = resp.dnd_release_payload::<BrushDrag>()
-        && let BrushDrag::Preset(n) = &*d
-        && *n != p.name
-        && let Some((group, folder, index)) = drop_target(presets, n, &p.name, second_half(ui, r, grid))
-    {
-        acts.push(Action::Move { name: n.clone(), group, folder: Some(folder), index: Some(index) });
+        acts.push(Action::Move { name: n, group, folder: Some(folder), index: Some(index) });
     }
     if resp.double_clicked() {
         acts.push(Action::Choose(p.name.clone()));
@@ -633,25 +614,26 @@ pub fn folder_drop(src_group: &str, src_folder: &[String], group: &str, folder: 
 /// group), `label` the group's panel label.
 fn group_header(ui: &mut egui::Ui, label: &str, key: &str, folder: &[String], open: bool, count: usize, acts: &mut Vec<Action>) {
     let t = Tokens::get(ui.ctx());
-    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click_and_drag());
     let shown = folder.last().map_or(label, String::as_str);
-    crate::preset_panels::paint_asset_browser_header(ui, r, open, shown, folder.len(), resp.hovered() || resp.dragged(), Some(count));
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, shown));
+    let (r, resp) = crate::preset_panels::asset_browser_header(ui, shown, open, folder.len(), Some(count), 24.0);
     let me = match folder {
-        [] => BrushDrag::Group(key.to_string()),
-        f => BrushDrag::Folder { group: key.to_string(), folder: f.to_vec() },
+        [] => BrushDrag::Group { scope: "brushes".into(), name: key.to_string() },
+        f => BrushDrag::Folder { scope: "brushes".into(), group: key.to_string(), folder: f.to_vec() },
     };
     resp.dnd_set_drag_payload(me);
     // The upper third of the header places a dragged folder before this one; the rest drops it in.
-    let edge = ui.ctx().pointer_interact_pos().is_some_and(|p| p.y < r.top() + r.height() / 3.0);
+    let edge = ui.ctx().pointer_interact_pos().is_some_and(|p| crate::preset_panels::header_drop_before(r, p));
     let folder_action = |d: &BrushDrag| match d {
-        BrushDrag::Group(g) => folder_drop(g, &[], key, folder, edge),
-        BrushDrag::Folder { group, folder: f } => folder_drop(group, f, key, folder, edge),
-        BrushDrag::Preset(_) => None,
+        BrushDrag::Group { scope, name } if scope.as_str() == "brushes" => folder_drop(name, &[], key, folder, edge),
+        BrushDrag::Folder { scope, group, folder: f } if scope.as_str() == "brushes" => folder_drop(group, f, key, folder, edge),
+        _ => None,
     };
     if let Some(d) = resp.dnd_hover_payload::<BrushDrag>() {
         match (&*d, folder_action(&d)) {
-            (BrushDrag::Preset(_), _) | (_, Some(Action::MoveInto { before: None, .. })) => {
+            (BrushDrag::Preset { scope, .. }, _) if scope.as_str() == "brushes" => {
+                ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+            }
+            (_, Some(Action::MoveInto { before: None, .. })) => {
                 ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
             }
             (_, Some(_)) => widgets::drop_line(ui, r, false, false, &t),
@@ -660,7 +642,7 @@ fn group_header(ui: &mut egui::Ui, label: &str, key: &str, folder: &[String], op
     }
     if let Some(d) = resp.dnd_release_payload::<BrushDrag>() {
         match &*d {
-            BrushDrag::Preset(n) => acts.push(Action::Move { name: n.clone(), group: key.to_string(), folder: Some(folder.to_vec()), index: None }),
+            BrushDrag::Preset { scope, key: n } if scope.as_str() == "brushes" => acts.push(Action::Move { name: n.clone(), group: key.to_string(), folder: Some(folder.to_vec()), index: None }),
             other => acts.extend(folder_action(other)),
         }
     }
@@ -867,16 +849,17 @@ pub fn preset_list(ui: &mut egui::Ui, presets: &[BrushPreset], current: Option<&
     });
     // The dragged preset or group follows the pointer.
     if let Some(d) = egui::DragAndDrop::payload::<BrushDrag>(ui.ctx())
+        && matches!(&*d, BrushDrag::Preset { scope, .. } | BrushDrag::Group { scope, .. } | BrushDrag::Folder { scope, .. } if scope.as_str() == "brushes")
         && let Some(p) = ui.ctx().pointer_interact_pos()
     {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         let name = match &*d {
-            BrushDrag::Preset(n) => n.clone(),
-            BrushDrag::Group(g) => {
-                if g.is_empty() {
+            BrushDrag::Preset { key, .. } => key.clone(),
+            BrushDrag::Group { name, .. } => {
+                if name.is_empty() {
                     UNGROUPED.to_string()
                 } else {
-                    g.clone()
+                    name.clone()
                 }
             }
             BrushDrag::Folder { folder, .. } => folder.last().cloned().unwrap_or_default(),
@@ -884,12 +867,13 @@ pub fn preset_list(ui: &mut egui::Ui, presets: &[BrushPreset], current: Option<&
         egui::Area::new(egui::Id::new(("brush-drag-label", layout.id))).order(egui::Order::Tooltip).fixed_pos(p + vec2(12.0, 8.0)).interactable(false).show(
             ui.ctx(),
             |ui| {
-                if matches!(&*d, BrushDrag::Preset(_)) {
+                if matches!(&*d, BrushDrag::Preset { scope, .. } if scope.as_str() == "brushes") {
                     ui.set_opacity(0.8);
                 }
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if let BrushDrag::Preset(n) = &*d
+                        if let BrushDrag::Preset { scope, key: n } = &*d
+                            && scope.as_str() == "brushes"
                             && let Some(preset) = presets.iter().find(|preset| preset.name == *n)
                         {
                             let brush = &preset.brush;

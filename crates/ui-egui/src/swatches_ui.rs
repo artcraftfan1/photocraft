@@ -122,6 +122,13 @@ fn handle(app: &mut PhotocraftApp, e: Ev, background: bool) {
             }
         }
         Ev::Move(k, g) => drop(run(app, "swatches.move", json!({"swatch": k, "to": g}))),
+        Ev::MoveItem(k, g, index) => {
+            let mut params = json!({"swatch": k, "to": g});
+            if let Some(index) = index {
+                params["position"] = json!(index);
+            }
+            drop(run(app, "swatches.move", params));
+        }
         Ev::RenameGroup(g, n) => drop(run(app, "swatches.renameGroup", json!({"group": g, "name": n}))),
         Ev::DeleteGroup(g) => drop(run(app, "swatches.deleteGroup", json!({"group": g}))),
         Ev::NewGroup => new_group(app),
