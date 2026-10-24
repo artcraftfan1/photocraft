@@ -8,6 +8,19 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use super::*;
 
 #[test]
+fn shared_browser_projection_keeps_brush_folder_paths_and_identity() {
+    let mut presets = photocraft_engine::Session::new().tools.presets;
+    let preset = presets.first_mut().expect("built-in brush preset");
+    preset.folder = vec!["Imported".into(), "Soft".into()];
+    let name = preset.name.clone();
+
+    let groups = browser_group_views(&presets);
+    let projected = groups.iter().flat_map(|group| &group.items).find(|item| item.key == name).expect("projected brush");
+    assert_eq!(projected.key, name);
+    assert_eq!(projected.folder, vec!["Imported".to_string(), "Soft".to_string()]);
+}
+
+#[test]
 fn dragging_a_brush_shows_its_tip_preview() {
     for theme in crate::theme::ThemeKind::ALL {
         for mode in 0..3 {

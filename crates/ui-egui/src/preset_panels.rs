@@ -50,7 +50,7 @@ pub struct PresetUi {
     /// Visibility of the placeholder search row per picker. Missing entries default to visible.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub search_visible: BTreeMap<String, bool>,
-    /// Visibility of the placeholder recent-items strip per picker. Missing entries default to visible.
+    /// Visibility of the recent-items strip per picker. Missing entries default to visible.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub recents_visible: BTreeMap<String, bool>,
     /// In-place rename: (panel, preset or "group:<name>", text).
@@ -458,6 +458,8 @@ pub(crate) struct ItemView {
     pub(crate) key: String,
     /// Display label shown in the item card or list row.
     pub(crate) name: String,
+    /// Optional path beneath the containing group. Empty paths keep existing flat libraries flat.
+    pub(crate) folder: Vec<String>,
 }
 
 /// Asset-neutral group and its ordered items, ready for rendering by the shared browser.
@@ -482,12 +484,15 @@ pub(crate) fn pattern_group_views(patterns: &[photocraft_doc::Pattern], groups: 
                 .iter()
                 .filter_map(|id| patterns.iter().find(|p| &p.id == id))
                 .filter(|p| assigned.insert(p.id.clone()))
-                .map(|p| ItemView { key: p.id.clone(), name: p.display_name().to_string() })
+                .map(|p| ItemView { key: p.id.clone(), name: p.display_name().to_string(), folder: Vec::new() })
                 .collect(),
         })
         .collect();
-    let loose: Vec<ItemView> =
-        patterns.iter().filter(|p| !assigned.contains(&p.id)).map(|p| ItemView { key: p.id.clone(), name: p.display_name().to_string() }).collect();
+    let loose: Vec<ItemView> = patterns
+        .iter()
+        .filter(|p| !assigned.contains(&p.id))
+        .map(|p| ItemView { key: p.id.clone(), name: p.display_name().to_string(), folder: Vec::new() })
+        .collect();
     if !loose.is_empty() {
         if let Some(group) = views.iter_mut().find(|g| g.name == "Patterns") {
             group.items.extend(loose);
@@ -643,6 +648,34 @@ pub(crate) enum Ev {
 fn group_open(st: &PresetUi, panel: &str, gi: usize, name: &str) -> bool {
     // Swatch groups are small and all start open (Photoshop); other panels open the first only.
     (gi == 0 || panel == crate::swatches_ui::PANEL) != st.toggled.contains(&format!("{panel}/{name}"))
+}
+
+/// Shared group/folder header used by the preset browser and the brush hierarchy. Group and folder
+/// rows use the darker field surface; hierarchy is conveyed by indentation rather than an accent bar.
+pub(crate) fn paint_asset_browser_header(ui: &egui::Ui, r: Rect, open: bool, name: &str, depth: usize, hovered: bool, count: Option<usize>) {
+    let t = Tokens::get(ui.ctx());
+    let indent = 14.0 * depth.min(4) as f32;
+    let fill = if hovered { t.hover } else { t.field };
+    ui.painter().rect_filled(r, t.radius_sm, fill);
+    let x = r.left() + 6.0 + indent;
+    crate::icons::paint(
+        ui,
+        Rect::from_center_size(pos2(x + 6.0, r.center().y), vec2(12.0, 12.0)),
+        if open { "chevron-down" } else { "chevron-right" },
+        10.0,
+        t.text_dim,
+    );
+    crate::icons::paint(ui, Rect::from_center_size(pos2(x + 24.0, r.center().y), vec2(14.0, 14.0)), if open { "folder-open" } else { "folder" }, 12.0, t.icon);
+    ui.painter().text(
+        pos2(x + 36.0, r.center().y),
+        Align2::LEFT_CENTER,
+        name,
+        if depth == 0 { crate::theme::semibold(11.5) } else { crate::theme::medium(11.5) },
+        t.text,
+    );
+    if let Some(count) = count {
+        ui.painter().text(pos2(r.right() - 8.0, r.center().y), Align2::RIGHT_CENTER, count.to_string(), crate::theme::medium(11.0), t.text_faint);
+    }
 }
 
 /// The footer's height (gap, size slider and buttons) before it has been measured.
@@ -972,14 +1005,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                 if let Some(paint) = paint_group.as_deref_mut() {
                     paint(ui, hr, g, open, hresp.hovered() || hresp.dragged());
                 } else {
-                    if hresp.hovered() || hresp.dragged() {
-                        ui.painter().rect_filled(hr, 2.0, t.hover.gamma_multiply(0.5));
-                    }
-                    let tri = Rect::from_center_size(pos2(hr.left() + 9.0, hr.center().y), vec2(12.0, 12.0));
-                    crate::icons::paint(ui, tri, if open { "chevron-down" } else { "chevron-right" }, 10.0, t.text_dim);
-                    let fold = Rect::from_center_size(pos2(hr.left() + 25.0, hr.center().y), vec2(14.0, 14.0));
-                    crate::icons::paint(ui, fold, if open { "folder-open" } else { "folder" }, 12.0, t.icon);
-                    ui.painter().text(pos2(hr.left() + 37.0, hr.center().y), Align2::LEFT_CENTER, &g.name, FontId::proportional(11.5), t.text);
+                    paint_asset_browser_header(ui, hr, open, &g.name, 0, hresp.hovered() || hresp.dragged(), None);
                 }
                 if hresp.clicked() {
                     let k = format!("{panel}/{}", g.name);
@@ -1000,6 +1026,17 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                 {
                     drag = Some((gi, p));
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    // Keep the dragged entry recognizable while it follows the pointer. The
+                    // previous group drag only showed the insertion line, leaving no indication
+                    // of which folder was being moved.
+                    let lp = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new(("preset-group-drag", panel))));
+                    let gr = Rect::from_center_size(p, vec2(hr.width().min(220.0), hr.height()));
+                    lp.rect_filled(gr, 2.0, t.card.linear_multiply(0.8));
+                    lp.rect_stroke(gr, 2.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Outside);
+                    let fold = Rect::from_min_size(pos2(gr.left() + 5.0, gr.center().y - 4.0), vec2(11.0, 8.0));
+                    lp.rect_filled(Rect::from_min_size(pos2(fold.left(), fold.top() - 2.0), vec2(5.0, 3.0)), 1.0, t.icon);
+                    lp.rect_filled(fold, 1.0, t.icon);
+                    lp.text(pos2(gr.left() + 22.0, gr.center().y), Align2::LEFT_CENTER, &g.name, FontId::proportional(11.5), t.text);
                 }
                 if capabilities.group_drag
                     && hresp.drag_stopped()
@@ -1011,79 +1048,110 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                 if !open {
                     continue;
                 }
-                let w = ui.available_width();
-                let pad = if list { 0.0 } else { GRID_INSET };
-                let gap = if list || flush { 0.0 } else { GRID_GAP };
-                let (cell, cols) = if list {
-                    (vec2(w, 24.0), 1)
-                } else {
-                    let cols = ((w - pad + gap) / (size + gap)).floor().max(1.0) as usize;
-                    (vec2(size, size), cols)
+                let tree = hierarchy_tree(g.items.iter().map(|item| (item.folder.as_slice(), item)).collect(), 4);
+                let mut folder_toggles = Vec::new();
+                let toggled_folders = st.toggled.clone();
+                let mut is_folder_open =
+                    move |folder: &HierarchyFolder<'_, ItemView>| !toggled_folders.contains(&format!("{panel}/{}/{}", g.name, folder.path.join("/")));
+                let mut draw_folder = |ui: &mut egui::Ui, folder: &HierarchyFolder<'_, ItemView>, folder_open: bool, depth: usize| {
+                    let (fr, fresp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click());
+                    paint_asset_browser_header(
+                        ui,
+                        fr,
+                        folder_open,
+                        folder.path.last().map(String::as_str).unwrap_or(""),
+                        depth + 1,
+                        fresp.hovered(),
+                        Some(folder.count),
+                    );
+                    if fresp.clicked() {
+                        folder_toggles.push(format!("{panel}/{}/{}", g.name, folder.path.join("/")));
+                    }
                 };
-                let rows = g.items.len().div_ceil(cols);
-                let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (cell.y + gap) + 2.0), Sense::hover());
-                for (ii, it) in g.items.iter().enumerate() {
-                    let (cx, cy) = ((ii % cols) as f32, (ii / cols) as f32);
-                    let r = Rect::from_min_size(area.min + vec2(pad + cx * (cell.x + gap), cy * (cell.y + gap)), cell);
-                    let resp = ui.interact(r, ui.id().with((panel, gi, ii)), Sense::click_and_drag());
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &it.name));
-                    let is_sel = selected.as_deref() == Some(&it.key);
-                    if list {
-                        if is_sel {
-                            ui.painter().rect_filled(r, 0.0, t.row_selected);
-                        } else if resp.hovered() {
-                            ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.5));
-                        }
-                        let tr = Rect::from_min_size(r.min + vec2(24.0, 2.0), vec2(20.0, 20.0));
-                        paint_item(ui, tr, gi, ii);
-                        ui.painter().text(pos2(tr.right() + 8.0, r.center().y), Align2::LEFT_CENTER, &it.name, FontId::proportional(11.5), t.text);
+                let mut draw_items = |ui: &mut egui::Ui, items: &[&ItemView], depth: usize| {
+                    let w = ui.available_width();
+                    let indent = depth as f32 * 14.0;
+                    let pad = (if list { 0.0 } else { GRID_INSET }) + indent;
+                    let gap = if list || flush { 0.0 } else { GRID_GAP };
+                    let (cell, cols) = if list {
+                        (vec2((w - indent).max(0.0), 24.0), 1)
                     } else {
-                        paint_item(ui, r, gi, ii);
-                        // Touching cells draw no border of their own: only the selected and the
-                        // hovered one are outlined, over their neighbours, as in Photoshop.
-                        let stroke = if is_sel {
-                            Some((Stroke::new(2.0, t.accent), egui::StrokeKind::Outside))
-                        } else if resp.hovered() {
-                            Some((Stroke::new(1.0, t.text_dim), egui::StrokeKind::Outside))
-                        } else if flush {
-                            None
+                        let cols = ((w - pad + gap) / (size + gap)).floor().max(1.0) as usize;
+                        (vec2(size, size), cols)
+                    };
+                    let rows = items.len().div_ceil(cols);
+                    let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (cell.y + gap) + 2.0), Sense::hover());
+                    for (run_i, it) in items.iter().enumerate() {
+                        let ii = g.items.iter().position(|original| std::ptr::eq(original, *it)).unwrap_or(run_i);
+                        let (cx, cy) = ((run_i % cols) as f32, (run_i / cols) as f32);
+                        let r = Rect::from_min_size(area.min + vec2(pad + cx * (cell.x + gap), cy * (cell.y + gap)), cell);
+                        let resp = ui.interact(r, ui.id().with((panel, gi, ii)), Sense::click_and_drag());
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &it.name));
+                        let is_sel = selected.as_deref() == Some(&it.key);
+                        if list {
+                            if is_sel {
+                                ui.painter().rect_filled(r, 0.0, t.row_selected);
+                            } else if resp.hovered() {
+                                ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.5));
+                            }
+                            let tr = Rect::from_min_size(r.min + vec2(24.0, 2.0), vec2(20.0, 20.0));
+                            paint_item(ui, tr, gi, ii);
+                            ui.painter().text(pos2(tr.right() + 8.0, r.center().y), Align2::LEFT_CENTER, &it.name, FontId::proportional(11.5), t.text);
                         } else {
-                            Some((Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside))
-                        };
-                        if let Some((stroke, kind)) = stroke {
-                            ui.painter().rect_stroke(r, CornerRadius::same(if flush { 0 } else { 2 }), stroke, kind);
+                            paint_item(ui, r, gi, ii);
+                            // Touching cells draw no border of their own: only the selected and the
+                            // hovered one are outlined, over their neighbours, as in Photoshop.
+                            let stroke = if is_sel {
+                                Some((Stroke::new(2.0, t.accent), egui::StrokeKind::Outside))
+                            } else if resp.hovered() {
+                                Some((Stroke::new(1.0, t.text_dim), egui::StrokeKind::Outside))
+                            } else if flush {
+                                None
+                            } else {
+                                Some((Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside))
+                            };
+                            if let Some((stroke, kind)) = stroke {
+                                ui.painter().rect_stroke(r, CornerRadius::same(if flush { 0 } else { 2 }), stroke, kind);
+                            }
+                        }
+                        let hover = if it.folder.is_empty() { it.name.clone() } else { format!("{} / {}", it.folder.join(" / "), it.name) };
+                        let resp = resp.on_hover_text(hover);
+                        if capabilities.activation && resp.double_clicked() {
+                            ev.push(Ev::Activate(it.key.clone()));
+                        } else if capabilities.selection && resp.clicked() {
+                            ev.push(Ev::Select(it.key.clone()));
+                        }
+                        if capabilities.item_drag
+                            && resp.dragged()
+                            && let Some(pp) = ui.ctx().pointer_interact_pos()
+                        {
+                            // A ghost of the swatch follows the pointer.
+                            let lp = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("preset-drag")));
+                            let gr = Rect::from_center_size(pp, vec2(28.0, 28.0));
+                            lp.rect_filled(gr, 3.0, t.card.gamma_multiply(0.8));
+                            lp.rect_stroke(gr, 3.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Outside);
+                            lp.text(gr.center(), Align2::CENTER_CENTER, "+", FontId::proportional(16.0), t.accent);
+                        }
+                        if capabilities.item_drag
+                            && resp.drag_stopped()
+                            && let Some(pp) = ui.ctx().pointer_interact_pos()
+                            && !r.contains(pp)
+                        {
+                            dropped = Some((it.key.clone(), pp));
+                        }
+                        if let Some(menu) = item_context_menu {
+                            if panel.starts_with("compact-") || panel == "brush-texture-patterns" {
+                                compact_context_menu_target(ui, resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
+                            } else {
+                                context_menu_target(resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
+                            }
                         }
                     }
-                    let resp = if list { resp } else { resp.on_hover_text(&it.name) };
-                    if capabilities.activation && resp.double_clicked() {
-                        ev.push(Ev::Activate(it.key.clone()));
-                    } else if capabilities.selection && resp.clicked() {
-                        ev.push(Ev::Select(it.key.clone()));
-                    }
-                    if capabilities.item_drag
-                        && resp.dragged()
-                        && let Some(pp) = ui.ctx().pointer_interact_pos()
-                    {
-                        // A ghost of the swatch follows the pointer.
-                        let lp = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("preset-drag")));
-                        let gr = Rect::from_center_size(pp, vec2(28.0, 28.0));
-                        lp.rect_filled(gr, 3.0, t.card.gamma_multiply(0.8));
-                        lp.rect_stroke(gr, 3.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Outside);
-                        lp.text(gr.center(), Align2::CENTER_CENTER, "+", FontId::proportional(16.0), t.accent);
-                    }
-                    if capabilities.item_drag
-                        && resp.drag_stopped()
-                        && let Some(pp) = ui.ctx().pointer_interact_pos()
-                        && !r.contains(pp)
-                    {
-                        dropped = Some((it.key.clone(), pp));
-                    }
-                    if let Some(menu) = item_context_menu {
-                        if panel.starts_with("compact-") || panel == "brush-texture-patterns" {
-                            compact_context_menu_target(ui, resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
-                        } else {
-                            context_menu_target(resp.clone(), |ui| menu(ui, st, panel, it, g, &group_names, &mut ev));
-                        }
+                };
+                draw_hierarchy(ui, &tree, 0, 4, &mut is_folder_open, &mut draw_folder, &mut draw_items);
+                for key in folder_toggles {
+                    if !st.toggled.remove(&key) {
+                        st.toggled.insert(key);
                     }
                 }
             }
@@ -1301,7 +1369,10 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.add_space(4.0);
     let groups: Vec<GroupView> = groups_src
         .iter()
-        .map(|g| GroupView { name: g.name.clone(), items: g.items.iter().map(|i| ItemView { key: i.name.clone(), name: i.name.clone() }).collect() })
+        .map(|g| GroupView {
+            name: g.name.clone(),
+            items: g.items.iter().map(|i| ItemView { key: i.name.clone(), name: i.name.clone(), folder: Vec::new() }).collect(),
+        })
         .collect();
     let canvas = canvas_drop_rect(app);
     let mut st = std::mem::take(&mut app.ui.presets_ui);
@@ -1405,29 +1476,22 @@ fn float_window(
         .shadow(egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: t.shadow })
         .inner_margin(egui::Margin::same(8));
     let canvas = canvas_drop_rect(app);
-    let mut close = false;
+    let mut open = true;
     egui::Window::new(title)
         .id(egui::Id::new(("preset-window", key)))
-        .title_bar(false)
+        .title_bar(true)
+        .collapsible(false)
+        .open(&mut open)
         .resizable(false)
+        .movable(!app.session.prefs().workspace_locked)
         .frame(frame)
         .default_pos(pos2((canvas.right() - width - 16.0 - offset).max(canvas.left() + 8.0), canvas.top() + 40.0))
         .show(ctx, |ui| {
             ui.set_width(width);
-            // Photoshop-style tab header with a close box.
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(tl!(&title)).color(t.text).size(12.0).strong());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if crate::icons::button(ui, "x", 20.0, false, tl!("Close")).clicked() {
-                        close = true;
-                    }
-                });
-            });
-            crate::widgets::hairline(ui);
             ui.add_space(4.0);
             body(app, ui);
         });
-    close
+    !open
 }
 
 /// Draws the open floating panels (Styles, Shapes, Tool Presets, Clone Source).
@@ -1453,7 +1517,10 @@ pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let src = app.session.presets.styles.clone();
     let groups: Vec<GroupView> = src
         .iter()
-        .map(|g| GroupView { name: g.name.clone(), items: g.items.iter().map(|i| ItemView { key: i.name.clone(), name: i.name.clone() }).collect() })
+        .map(|g| GroupView {
+            name: g.name.clone(),
+            items: g.items.iter().map(|i| ItemView { key: i.name.clone(), name: i.name.clone(), folder: Vec::new() }).collect(),
+        })
         .collect();
     let canvas = canvas_drop_rect(app);
     let mut st = std::mem::take(&mut app.ui.presets_ui);
@@ -1509,7 +1576,10 @@ pub fn shapes_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let src = photocraft_engine::presets::shapes::all_groups(&app.session);
     let groups: Vec<GroupView> = src
         .iter()
-        .map(|g| GroupView { name: g.name.clone(), items: g.items.iter().map(|i| ItemView { key: i.name.clone(), name: i.name.clone() }).collect() })
+        .map(|g| GroupView {
+            name: g.name.clone(),
+            items: g.items.iter().map(|i| ItemView { key: i.name.clone(), name: i.name.clone(), folder: Vec::new() }).collect(),
+        })
         .collect();
     let canvas = canvas_drop_rect(app);
     let mut st = std::mem::take(&mut app.ui.presets_ui);
@@ -2123,7 +2193,7 @@ mod tests {
 
         use egui_kittest::{Harness, kittest::Queryable};
 
-        let groups = vec![GroupView { name: "Only group".into(), items: vec![ItemView { key: "only".into(), name: "Only item".into() }] }];
+        let groups = vec![GroupView { name: "Only group".into(), items: vec![ItemView { key: "only".into(), name: "Only item".into(), folder: Vec::new() }] }];
         let mut st = PresetUi::default();
         let menu_calls = Rc::new(Cell::new(0));
         let search_calls = Rc::new(Cell::new(0));
@@ -2199,6 +2269,24 @@ mod tests {
         let deep_path = path(&["Folder", "Deep", "TooDeep"]);
         let bounded = hierarchy_tree(vec![(&nested_path, &c), (&deep_path, &d)], 1);
         assert!(matches!(bounded.first(), Some(HierarchyNode::Folder(f)) if f.path == ["Folder"] && f.children.len() == 2));
+    }
+
+    #[test]
+    fn asset_group_projects_folder_paths_into_the_shared_hierarchy() {
+        let group = GroupView {
+            name: "Brushes".into(),
+            items: vec![
+                ItemView { key: "a".into(), name: "A".into(), folder: vec!["Imported".into()] },
+                ItemView { key: "b".into(), name: "B".into(), folder: Vec::new() },
+                ItemView { key: "c".into(), name: "C".into(), folder: vec!["Imported".into(), "Soft".into()] },
+            ],
+        };
+        let tree = hierarchy_tree(group.items.iter().map(|item| (item.folder.as_slice(), item)).collect(), 4);
+        assert!(matches!(tree.first(), Some(HierarchyNode::Folder(folder)) if folder.path == ["Imported"] && folder.count == 2));
+        assert!(matches!(tree.get(1), Some(HierarchyNode::Preset(item)) if item.key == "b"));
+        assert!(
+            matches!(&tree[0], HierarchyNode::Folder(folder) if matches!(folder.children.get(1), Some(HierarchyNode::Folder(nested)) if nested.path == ["Imported", "Soft"] && nested.count == 1 && matches!(nested.children.first(), Some(HierarchyNode::Preset(item)) if item.key == "c")))
+        );
     }
 
     #[test]
@@ -2300,7 +2388,7 @@ mod tests {
     fn browser_keeps_context_hit_targets_but_delegates_menu_actions() {
         use egui_kittest::{Harness, kittest::Queryable};
 
-        let groups = vec![GroupView { name: "Only group".into(), items: vec![ItemView { key: "only".into(), name: "Only item".into() }] }];
+        let groups = vec![GroupView { name: "Only group".into(), items: vec![ItemView { key: "only".into(), name: "Only item".into(), folder: Vec::new() }] }];
         let mut st = PresetUi::default();
         let mut adapter = BrowserAdapter {
             panel: "consumer-actions",

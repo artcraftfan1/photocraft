@@ -19,8 +19,10 @@ use serde_json::json;
 
 use crate::brush_panel::{BrushesPanelState, BrushesView, Renaming, UNGROUPED, commit_gesture, full_uv, grouped_presets, run_or_status};
 use crate::brush_preview;
+#[cfg(test)]
+use crate::preset_panels::{GroupView, ItemView};
 use crate::preset_panels::{ShellOptions, picker_shell_custom};
-use crate::theme::{self, Tokens};
+use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons, widgets};
 
 /// What a drag in the Brushes tab carries.
@@ -114,6 +116,24 @@ fn responsive_list_layout(ui: &egui::Ui) -> ListLayout {
 /// [`UNGROUPED`].
 pub fn group_key(presets: &[BrushPreset], label: &str) -> String {
     if label == UNGROUPED && !presets.iter().any(|p| p.group == UNGROUPED) { String::new() } else { label.to_string() }
+}
+
+/// Project the brush library into the shared asset-browser model. Keep brush identity and nested
+/// folder paths intact so the generic browser can own hierarchy layout while brush adapters retain
+/// their specialised tip/stroke previews and command dispatch.
+#[cfg(test)]
+pub(crate) fn browser_group_views(presets: &[BrushPreset]) -> Vec<GroupView> {
+    grouped_presets(presets)
+        .into_iter()
+        .map(|(name, indices)| GroupView {
+            name,
+            items: indices
+                .into_iter()
+                .filter_map(|i| presets.get(i))
+                .map(|preset| ItemView { key: preset.name.clone(), name: preset.name.clone(), folder: preset.folder.clone() })
+                .collect(),
+        })
+        .collect()
 }
 
 /// Deepest nested folder the panel draws; deeper folders show at this depth.
@@ -614,28 +634,8 @@ pub fn folder_drop(src_group: &str, src_folder: &[String], group: &str, folder: 
 fn group_header(ui: &mut egui::Ui, label: &str, key: &str, folder: &[String], open: bool, count: usize, acts: &mut Vec<Action>) {
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click_and_drag());
-    if resp.hovered() {
-        ui.painter().rect_filled(r, t.radius_sm, t.hover);
-    }
     let shown = folder.last().map_or(label, String::as_str);
-    let x = r.left() + 4.0 + FOLDER_INDENT * folder.len().min(MAX_VIEW_DEPTH) as f32;
-    icons::paint(
-        ui,
-        egui::Rect::from_min_size(pos2(x, r.center().y - 7.0), vec2(14.0, 14.0)),
-        if open { "chevron-down" } else { "chevron-right" },
-        12.0,
-        t.text_dim,
-    );
-    icons::paint(
-        ui,
-        egui::Rect::from_min_size(pos2(x + 18.0, r.center().y - 8.0), vec2(16.0, 16.0)),
-        if open { "folder-open" } else { "folder" },
-        14.0,
-        t.icon,
-    );
-    let font = if folder.is_empty() { theme::semibold(12.0) } else { theme::medium(12.0) };
-    ui.painter().text(pos2(x + 40.0, r.center().y), egui::Align2::LEFT_CENTER, shown, font, t.text);
-    ui.painter().text(pos2(r.right() - 8.0, r.center().y), egui::Align2::RIGHT_CENTER, count.to_string(), theme::medium(11.0), t.text_faint);
+    crate::preset_panels::paint_asset_browser_header(ui, r, open, shown, folder.len(), resp.hovered() || resp.dragged(), Some(count));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, shown));
     let me = match folder {
         [] => BrushDrag::Group(key.to_string()),
