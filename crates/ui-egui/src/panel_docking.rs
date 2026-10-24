@@ -483,6 +483,15 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
         }
     }
     for action in output.actions {
+        if let Action::MoveFloating { panel, rect } = &action
+            && collapsed.contains(panel)
+            && layout.floating.iter().any(|group| group.panels.contains(panel))
+            && rect[3] > (if t.pro { 28.0 } else { 40.0 }) + 22.0 + 1.0
+        {
+            // The shared docking surface allows a collapsed float to grow only from its bottom
+            // edge. A downward resize expands the panel instead of leaving an empty tall shell.
+            commands.push(("window.panel.group", json!({"panel":panel,"operation":"expand"})));
+        }
         if let Err(error) = app.run("window.panel.layout", json!({"action": action})) {
             app.ui.status = error;
         }

@@ -593,9 +593,10 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
             self.content.group_header(&mut child, panels, selected, floating);
         }
         if title_bar && panels.iter().all(|p| (self.permissions)(p).movable) {
-            // Picker close controls are 18 px wide inside the 28 px header allocation. Keep
-            // the unused 10 px beside the control draggable instead of leaving it dead.
-            let title_drag_right = title_rect.right() - if move_cursor { header_width } else { (header_width - 10.0).max(0.0) };
+            // The application title header uses an 18 px close control inside its 28 px
+            // allocation. Reserve the control itself, not the whole allocation, so the spare
+            // 10 px remains a usable drag target for every floating panel.
+            let title_drag_right = title_rect.right() - (header_width - 10.0).max(0.0);
             let drag_rect = Rect::from_min_max(title_rect.min, pos2(title_drag_right, title_rect.bottom()));
             let title_drag = ui.interact(drag_rect, self.id.with(("move-title", panels.first())), Sense::drag());
             let response = title_drag.on_hover_cursor(if move_cursor { egui::CursorIcon::Grab } else { egui::CursorIcon::Default });
@@ -830,6 +831,11 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
             let Some(first) = group.panels.first() else { continue };
             let [x, y, width, height] = group.rect;
             let mut limits = self.node_limits(&Node::Tabs { panels: group.panels.clone(), active: group.active });
+            // A collapsed floating panel has no body height: only its title and tab strips are
+            // visible. Keep this distinction before adding the floating title to the limits so
+            // resize controls can use a valid range and avoid the inverted clamp that used to
+            // panic when a collapsed window was resized.
+            let collapsed = (limits.max.y - limits.min.y).abs() < 0.5;
             // Floating groups that opt into title bars need room beyond the tab strip.
             if group.panels.get(group.active).is_some_and(|active| self.content.has_floating_title(&group.panels, active)) {
                 let title_height = self.content.floating_title_height(&group.panels, &group.panels[group.active]).clamp(0.0, 4096.0);
@@ -867,6 +873,12 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
                     ("resize-right", bottom_right_edge, egui::CursorIcon::ResizeHorizontal, false, true, false),
                 ];
                 for (handle_id, handle_rect, cursor, moves_left, moves_right, moves_bottom) in handles {
+                    // A collapsed window may be widened, or expanded by dragging the middle of
+                    // its bottom edge. Its bottom corners are intentionally inert: resizing from
+                    // there used to hit an invalid min/max height range and crash.
+                    if collapsed && matches!(handle_id, "resize-left-bottom" | "resize-bottom-right") {
+                        continue;
+                    }
                     let response = ui.interact(handle_rect, id.with(handle_id), Sense::drag()).on_hover_cursor(cursor);
                     self.register_interaction(ui.ctx(), response.id);
                     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &self.style.resize_window_label));
@@ -895,8 +907,15 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
                         });
                     }
                     if response.enabled() && delta != Vec2::ZERO {
-                        let min = limits.min.max(vec2(40.0, self.style.tab_height + 20.0));
-                        let max = limits.max.min(screen.size());
+                        let mut min = limits.min.max(vec2(40.0, self.style.tab_height + 20.0));
+                        let mut max = limits.max.min(screen.size());
+                        if collapsed {
+                            // Preserve the collapsed height unless the bottom edge is dragged
+                            // downward. The host sees the taller rectangle and expands the group.
+                            min.y = rect.height();
+                            max.y = screen.height().max(min.y);
+                        }
+                        max = max.max(min);
                         let width = (rect.width()
                             + if moves_left {
                                 -delta.x
