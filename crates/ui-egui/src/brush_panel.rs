@@ -237,9 +237,14 @@ pub(crate) fn new_preset_name(presets: &[paint::BrushPreset]) -> String {
     (1..).map(|n| format!("Brush {n}")).find(|n| !presets.iter().any(|p| &p.name == n)).unwrap_or_else(|| "Brush".into())
 }
 
-pub(crate) fn run_or_status(app: &mut PhotocraftApp, id: &str, p: Value) {
-    if let Err(e) = app.run(id, p) {
-        app.ui.status = e;
+/// Run a brush command, reporting failures in the status bar and returning whether it succeeded.
+pub(crate) fn run_or_status(app: &mut PhotocraftApp, id: &str, p: Value) -> bool {
+    match app.run(id, p) {
+        Ok(_) => true,
+        Err(e) => {
+            app.ui.status = e;
+            false
+        }
     }
 }
 
@@ -407,7 +412,9 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     }
                 })
                 .inner
-                .inspect(|name| run_or_status(app, "brush.presets.setCurrent", json!({ "name": name })));
+                .inspect(|name| {
+                    run_or_status(app, "brush.presets.setCurrent", json!({ "name": name }));
+                });
             });
         });
     });

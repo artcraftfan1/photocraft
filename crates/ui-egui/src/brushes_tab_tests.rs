@@ -36,6 +36,21 @@ fn shared_hierarchy_drop_contract_preserves_brush_folder_moves() {
 }
 
 #[test]
+fn collapsed_hierarchy_state_follows_group_and_folder_renames() {
+    let mut collapsed = vec!["Imported".into(), "Imported/Soft".into(), "Imported/Soft/Inner".into(), "Other/Soft".into()];
+    remap_collapsed_prefix(&mut collapsed, "Imported/Soft", "Imported/Gentle");
+    assert_eq!(collapsed, vec!["Imported".to_string(), "Imported/Gentle".into(), "Imported/Gentle/Inner".into(), "Other/Soft".into()]);
+
+    remap_collapsed_prefix(&mut collapsed, "Imported", "Library");
+    assert_eq!(collapsed, vec!["Library".to_string(), "Library/Gentle".into(), "Library/Gentle/Inner".into(), "Other/Soft".into()]);
+
+    remove_collapsed_prefix(&mut collapsed, "Library/Gentle");
+    assert_eq!(collapsed, vec!["Library".to_string(), "Other/Soft".into()]);
+    remove_collapsed_prefix(&mut collapsed, "Library");
+    assert_eq!(collapsed, vec!["Other/Soft".to_string()]);
+}
+
+#[test]
 fn shared_browser_projection_keeps_brush_folder_paths_and_identity() {
     let mut presets = photocraft_engine::Session::new().tools.presets;
     let preset = presets.first_mut().expect("built-in brush preset");

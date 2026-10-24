@@ -132,6 +132,25 @@ pub fn folder_view_key(label: &str, folder: &[String]) -> String {
     if folder.is_empty() { label.to_string() } else { format!("{label}/{}", folder.join("/")) }
 }
 
+/// Keep collapse state attached to a group or folder when its display path is renamed.
+fn remap_collapsed_prefix(collapsed: &mut [String], from: &str, to: &str) {
+    for key in collapsed {
+        if key == from {
+            *key = to.to_string();
+        } else if key.strip_prefix(from).is_some_and(|tail| tail.starts_with('/')) {
+            key.replace_range(..from.len(), to);
+        }
+    }
+}
+
+fn remove_collapsed_prefix(collapsed: &mut Vec<String>, prefix: &str) {
+    collapsed.retain(|key| key != prefix && !key.strip_prefix(prefix).is_some_and(|tail| tail.starts_with('/')));
+}
+
+fn group_label_for_key(presets: &[BrushPreset], key: &str) -> Option<String> {
+    grouped_presets(presets).into_iter().find(|(label, _)| group_key(presets, label) == key).map(|(label, _)| label)
+}
+
 /// A group's content in panel order: its presets and nested folders.
 pub type Node<'a> = crate::preset_panels::HierarchyNode<'a, BrushPreset>;
 pub type FolderNode<'a> = crate::preset_panels::HierarchyFolder<'a, BrushPreset>;
@@ -233,23 +252,45 @@ pub fn apply(app: &mut PhotocraftApp, acts: Vec<Action>) {
                 let old = r.folder.last().unwrap_or(&r.name);
                 if !text.is_empty() && text != *old {
                     if r.group {
+                        let label = group_label_for_key(&app.session.tools.presets, &r.name);
                         let mut p = json!({ "group": r.name, "newName": text });
                         if !r.folder.is_empty() {
                             p["folder"] = json!(r.folder);
                         }
-                        run_or_status(app, "brush.presets.renameGroup", p);
+                        if run_or_status(app, "brush.presets.renameGroup", p)
+                            && let Some(label) = label
+                        {
+                            let from = folder_view_key(&label, &r.folder);
+                            let to = if r.folder.is_empty() {
+                                text.clone()
+                            } else {
+                                let mut folder = r.folder.clone();
+                                if let Some(last) = folder.last_mut() {
+                                    *last = text.clone();
+                                }
+                                folder_view_key(&label, &folder)
+                            };
+                            remap_collapsed_prefix(&mut app.ui.brushes_panel.collapsed, &from, &to);
+                        }
                     } else {
                         run_or_status(app, "brush.presets.rename", json!({ "name": r.name, "newName": text }));
                     }
                 }
             }
-            Action::Delete(name) => run_or_status(app, "brush.presets.delete", json!({ "name": name })),
+            Action::Delete(name) => {
+                run_or_status(app, "brush.presets.delete", json!({ "name": name }));
+            }
             Action::DeleteGroup { group, folder } => {
+                let label = group_label_for_key(&app.session.tools.presets, &group);
                 let mut p = json!({ "group": group });
                 if !folder.is_empty() {
                     p["folder"] = json!(folder);
                 }
-                run_or_status(app, "brush.presets.deleteGroup", p);
+                if run_or_status(app, "brush.presets.deleteGroup", p)
+                    && let Some(label) = label
+                {
+                    remove_collapsed_prefix(&mut app.ui.brushes_panel.collapsed, &folder_view_key(&label, &folder));
+                }
             }
         }
     }
