@@ -520,7 +520,7 @@ fn the_rail_and_window_menu_never_lose_a_panel() {
     assert!(app.ui.panels.color && !app.ui.dock.is_collapsed(Group::Color));
     app.ui.dock.set_collapsed(Group::Color, true);
     crate::menus::invoke(&mut app, &ctx, "window.panel.gradients", json!({})).unwrap();
-    assert!(app.ui.presets_ui.gradients);
+    assert!(app.ui.docking.as_ref().is_some_and(|layout| layout.floating.iter().any(|group| group.panels.iter().any(|panel| panel == "gradients"))));
     assert!(app.ui.panels.color && app.ui.dock.is_collapsed(Group::Color));
     // Hidden panels come back from the Window menu, expanded, on their tab.
     app.ui.panels.history = false;

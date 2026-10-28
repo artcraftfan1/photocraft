@@ -8,7 +8,7 @@
 //! an engine command (`gradient.presets.*`, `pattern.presets.*`, `style.presets.*`,
 //! `shape.presets.*`, `tool.presets.*`, `cloneSource.*`); this module only draws and dispatches.
 
-use egui::{Align2, Color32, ColorImage, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, TextureHandle, pos2, vec2};
+use egui::{Align2, Color32, ColorImage, FontId, Pos2, Rect, Sense, Stroke, TextureHandle, pos2, vec2};
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
@@ -47,38 +47,9 @@ const PANELS: [&str; 7] = [
     "window.panel.cloneSource",
 ];
 
-/// Window-menu ids handled here.
-pub fn handles(id: &str) -> bool {
+/// Standard preset pickers are rendered by the shared docking surface.
+pub fn shared_docking(id: &str) -> bool {
     PANELS.contains(&id)
-}
-
-fn float_flag<'a>(p: &'a mut PresetUi, id: &str) -> Option<&'a mut bool> {
-    Some(match id {
-        "window.panel.gradients" => &mut p.gradients,
-        "window.panel.swatches" => &mut p.swatches,
-        "window.panel.patterns" => &mut p.patterns,
-        "window.panel.styles" => &mut p.styles,
-        "window.panel.shapes" => &mut p.shapes,
-        "window.panel.toolPresets" => &mut p.tool_presets,
-        "window.panel.cloneSource" => &mut p.clone_source,
-        _ => return None,
-    })
-}
-
-/// Window › <panel>: toggles the panel.
-pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
-    if !handles(id) {
-        return None;
-    }
-    let want = params.get("show").and_then(Value::as_bool);
-    let flag = float_flag(&mut app.ui.presets_ui, id)?;
-    *flag = want.unwrap_or(!*flag);
-    Some(Ok(json!({"visible": *flag})))
-}
-
-pub fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
-    let mut p = app.ui.presets_ui.clone();
-    float_flag(&mut p, id).map(|f| *f)
 }
 
 // ------------------------------------------------------------------ textures
@@ -127,103 +98,6 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 }
 
 // ------------------------------------------------------------------ floating panels
-
-fn float_window(
-    app: &mut PhotocraftApp,
-    ctx: &egui::Context,
-    key: &str,
-    title: &str,
-    width: f32,
-    offset: f32,
-    body: impl FnOnce(&mut PhotocraftApp, &mut egui::Ui),
-) -> bool {
-    let t = Tokens::get(ctx);
-    let frame = egui::Frame::NONE
-        .fill(t.card)
-        .stroke(Stroke::new(1.0, t.card_border))
-        .corner_radius(CornerRadius::same(t.radius_lg as u8))
-        .shadow(egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: t.shadow })
-        .inner_margin(egui::Margin::same(8));
-    let canvas = canvas_drop_rect(app);
-    let mut open = true;
-    egui::Window::new(title)
-        .id(egui::Id::new(("preset-window", key)))
-        .title_bar(true)
-        .collapsible(false)
-        .open(&mut open)
-        .resizable(false)
-        .movable(!app.session.prefs().workspace_locked)
-        .frame(frame)
-        .default_pos(pos2((canvas.right() - width - 16.0 - offset).max(canvas.left() + 8.0), canvas.top() + 40.0))
-        .show(ctx, |ui| {
-            ui.set_width(width);
-            ui.add_space(4.0);
-            body(app, ui);
-        });
-    !open
-}
-
-/// Draws the open floating panels (Styles, Shapes, Tool Presets, Clone Source).
-pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    let p = app.ui.presets_ui.clone();
-    if p.gradients {
-        let mut open = true;
-        crate::analysis_ui::panel_window_open(
-            app,
-            ctx,
-            crate::analysis_ui::PanelWindowSpec { id: "gradients-panel", title: tl!("Gradients"), offset: egui::vec2(-560.0, 80.0), width: 270.0 },
-            &mut open,
-            |app, ui| {
-                gradients_panel(app, ui);
-            },
-        );
-        if !open {
-            app.ui.presets_ui.gradients = false;
-        }
-    }
-    if p.swatches {
-        let mut open = true;
-        crate::analysis_ui::panel_window_open(
-            app,
-            ctx,
-            crate::analysis_ui::PanelWindowSpec { id: "swatches-panel", title: tl!("Swatches"), offset: egui::vec2(-280.0, 80.0), width: 270.0 },
-            &mut open,
-            |app, ui| {
-                crate::pickers::swatches_ui::panel(app, ui);
-            },
-        );
-        if !open {
-            app.ui.presets_ui.swatches = false;
-        }
-    }
-    if p.patterns {
-        let mut open = true;
-        crate::analysis_ui::panel_window_open(
-            app,
-            ctx,
-            crate::analysis_ui::PanelWindowSpec { id: "patterns-panel", title: tl!("Patterns"), offset: egui::vec2(0.0, 80.0), width: 270.0 },
-            &mut open,
-            |app, ui| {
-                patterns_panel(app, ui);
-            },
-        );
-        if !open {
-            app.ui.presets_ui.patterns = false;
-        }
-    }
-    if p.styles && float_window(app, ctx, "styles", tl!("Styles"), 250.0, 0.0, styles_panel) {
-        app.ui.presets_ui.styles = false;
-    }
-    if p.shapes && float_window(app, ctx, "shapes", tl!("Shapes"), 250.0, 280.0, shapes_panel) {
-        app.ui.presets_ui.shapes = false;
-    }
-    if p.tool_presets && float_window(app, ctx, "toolPresets", tl!("Tool Presets"), 250.0, 560.0, tool_presets_panel) {
-        app.ui.presets_ui.tool_presets = false;
-    }
-    if p.clone_source && float_window(app, ctx, "cloneSource", tl!("Clone Source"), 270.0, 840.0, clone_source_panel) {
-        app.ui.presets_ui.clone_source = false;
-    }
-}
 
 // ------------------------------------------------------------------ Styles
 
@@ -737,29 +611,28 @@ mod tests {
     }
 
     #[test]
-    fn window_menu_toggles_standalone_picker_panels_and_other_preset_panels() {
+    fn all_preset_windows_use_shared_docking_chrome() {
         let (mut app, ctx) = app();
         for id in PANELS {
             assert!(crate::menus::is_live(id), "{id}");
         }
         invoke(&mut app, &ctx, "window.panel.gradients", Value::Null).unwrap();
-        assert!(app.ui.presets_ui.gradients);
-        assert_eq!(checked(&app, "window.panel.gradients"), Some(true));
-        assert_eq!(checked(&app, "window.panel.patterns"), Some(false));
+        assert!(app.ui.docking.as_ref().is_some_and(|layout| layout.floating.iter().any(|group| group.panels.iter().any(|panel| panel == "gradients"))));
+        assert_eq!(crate::panel_docking::checked(&app, "window.panel.gradients"), Some(true));
         invoke(&mut app, &ctx, "window.panel.patterns", Value::Null).unwrap();
-        assert!(app.ui.presets_ui.patterns);
+        assert!(app.ui.docking.as_ref().is_some_and(|layout| layout.floating.iter().any(|group| group.panels.iter().any(|panel| panel == "patterns"))));
         invoke(&mut app, &ctx, "window.panel.swatches", Value::Null).unwrap();
-        assert!(app.ui.presets_ui.swatches);
-        // Choosing a standalone panel again hides it.
+        assert!(app.ui.docking.as_ref().is_some_and(|layout| layout.floating.iter().any(|group| group.panels.iter().any(|panel| panel == "swatches"))));
+        // Choosing a shared-docking picker again closes it.
         invoke(&mut app, &ctx, "window.panel.patterns", Value::Null).unwrap();
-        assert!(!app.ui.presets_ui.patterns);
-        for (id, f) in [("window.panel.styles", 0), ("window.panel.shapes", 1), ("window.panel.toolPresets", 2), ("window.panel.cloneSource", 3)] {
+        assert!(!app.ui.docking.as_ref().is_some_and(|layout| layout.contains(&"patterns".to_owned())));
+        for id in ["window.panel.styles", "window.panel.shapes", "window.panel.toolPresets", "window.panel.cloneSource"] {
             invoke(&mut app, &ctx, id, Value::Null).unwrap();
-            let p = &app.ui.presets_ui;
-            assert!([p.styles, p.shapes, p.tool_presets, p.clone_source][f], "{id}");
-            assert_eq!(checked(&app, id), Some(true));
+            let panel = id.strip_prefix("window.panel.").unwrap();
+            assert!(app.ui.docking.as_ref().is_some_and(|layout| layout.floating.iter().any(|group| group.panels.iter().any(|member| member == panel))), "{id} uses shared floating chrome");
+            assert_eq!(crate::panel_docking::checked(&app, id), Some(true));
             invoke(&mut app, &ctx, id, json!({"show": false})).unwrap();
-            assert_eq!(checked(&app, id), Some(false));
+            assert!(!app.ui.docking.as_ref().is_some_and(|layout| layout.contains(&panel.to_owned())), "{id} closes through shared docking");
         }
     }
 

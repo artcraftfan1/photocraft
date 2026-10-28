@@ -540,7 +540,7 @@ fn legacy_control_updates_authoritative_custom_visibility_and_selection_atomical
     assert_eq!(control_set(&mut app, &ctx, json!({"dockTabs":{"layers":1}}))["ok"], true);
     assert!(panel_active(app.ui.docking.as_ref().unwrap(), "channels"));
     assert_eq!(control_set(&mut app, &ctx, json!({"panels":{"layers":false}}))["ok"], true);
-    assert!(PANELS.iter().filter(|p| p.2 == Group::Layers).all(|p| !app.ui.docking.as_ref().unwrap().contains(&p.0.into())));
+    assert!(PANELS.iter().filter(|p| p.2 == Some(Group::Layers)).all(|p| !app.ui.docking.as_ref().unwrap().contains(&p.0.into())));
     assert!(!app.ui.panels.layers);
     assert_eq!(control_set(&mut app, &ctx, json!({"panels":{"layers":true},"dockTabs":{"layers":2}}))["ok"], true);
     assert!(panel_active(app.ui.docking.as_ref().unwrap(), "paths"));
@@ -712,6 +712,9 @@ fn floating_panel_title_remains_draggable_when_its_menu_is_open() {
     app.run("window.panel.float", json!({"panel":"swatches","x":40,"y":60,"width":300,"height":300})).unwrap();
     let mut h = harness(app, vec2(1280.0, 800.0));
     let before = open_floating_panel_menu(&mut h, "swatches");
+    h.hover_at(before.min + vec2(80.0, 7.0));
+    h.run_steps(1);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default, "the title stays draggable without a special drag cursor");
     drag(&mut h, before.min + vec2(80.0, 7.0), before.min + vec2(130.0, 37.0));
     let after = h.ctx.memory(|memory| memory.area_rect(egui::Id::new("photocraft-panel-docking").with(("floating", &"swatches".to_string())))).unwrap();
     assert_ne!(after.min, before.min, "dragging the floating title should move its panel");
@@ -723,10 +726,100 @@ fn floating_panel_tab_strip_remains_draggable_when_its_menu_is_open() {
     app.run("window.panel.float", json!({"panel":"swatches","x":40,"y":60,"width":300,"height":300})).unwrap();
     let mut h = harness(app, vec2(1280.0, 800.0));
     let before = open_floating_panel_menu(&mut h, "swatches");
-    let source = egui::pos2(before.right() - 42.0, before.top() + 15.0 + 10.0);
+    let source = egui::pos2(before.right() - 42.0, before.top() + 22.0 + 10.0);
+    h.hover_at(source);
+    h.run_steps(1);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default, "the tab strip stays draggable without a special drag cursor");
     drag(&mut h, source, source + vec2(50.0, 30.0));
     let after = h.ctx.memory(|memory| memory.area_rect(egui::Id::new("photocraft-panel-docking").with(("floating", &"swatches".to_string())))).unwrap();
     assert_ne!(after.min, before.min, "dragging the empty tab-strip region should move its panel");
+}
+
+const PRESET_PICKERS: [&str; 7] = ["gradients", "swatches", "patterns", "styles", "shapes", "toolPresets", "cloneSource"];
+
+fn floating_picker_harness(panel: &str) -> Harness<'static, PhotocraftApp> {
+    let mut app = app();
+    app.run("window.panel.float", json!({"panel":panel,"x":40,"y":60,"width":300,"height":300})).unwrap();
+    harness(app, vec2(1280.0, 800.0))
+}
+
+fn floating_picker_area_id(panel: &str) -> egui::Id {
+    egui::Id::new("photocraft-panel-docking").with(("floating", &panel.to_string()))
+}
+
+fn floating_picker_drag_id(kind: &str, panel: &str) -> egui::Id {
+    egui::Id::new("photocraft-panel-docking").with((kind, Some(&panel.to_string())))
+}
+
+#[test]
+fn every_preset_picker_uses_the_shared_22_pixel_title_bar_and_close_control() {
+    // These pickers used separate egui::Window chrome before migration. Assert each one exposes
+    // the shared docking title drag target and its standard close control.
+    for panel in PRESET_PICKERS {
+        let h = floating_picker_harness(panel);
+        let title = h.ctx.read_response(floating_picker_drag_id("move-title", panel)).expect("shared floating title drag target");
+        assert!((title.rect.height() - 22.0).abs() < 0.5, "{panel} uses the shared 22 px title bar: {:?}", title.rect);
+        assert!(h.query_all_by_label("×").count() > 0, "{panel} uses the shared title-bar close control");
+        assert!(h.ctx.memory(|memory| memory.area_rect(floating_picker_area_id(panel))).is_some(), "{panel} is rendered as a shared floating panel");
+    }
+}
+
+#[test]
+fn every_preset_picker_floating_title_bar_remains_draggable() {
+    for panel in PRESET_PICKERS {
+        let mut h = floating_picker_harness(panel);
+        let area_id = floating_picker_area_id(panel);
+        let before = h.ctx.memory(|memory| memory.area_rect(area_id)).unwrap();
+        let title = h.ctx.read_response(floating_picker_drag_id("move-title", panel)).expect("shared floating title drag target");
+        drag(&mut h, title.rect.center(), title.rect.center() + vec2(45.0, 25.0));
+        let after = h.ctx.memory(|memory| memory.area_rect(area_id)).unwrap();
+        assert_ne!(after.min, before.min, "{panel} title bar must move its floating panel");
+    }
+}
+
+#[test]
+fn every_preset_picker_empty_tab_strip_remains_draggable() {
+    for panel in PRESET_PICKERS {
+        let mut h = floating_picker_harness(panel);
+        let area_id = floating_picker_area_id(panel);
+        let before = h.ctx.memory(|memory| memory.area_rect(area_id)).unwrap();
+        let strip = h.ctx.read_response(floating_picker_drag_id("move-group-background", panel)).expect("shared empty tab-strip drag target");
+        let source = strip.rect.right_center() - vec2(8.0, 0.0);
+        drag(&mut h, source, source + vec2(35.0, 20.0));
+        let after = h.ctx.memory(|memory| memory.area_rect(area_id)).unwrap();
+        assert_ne!(after.min, before.min, "{panel} empty tab strip must move its floating panel");
+    }
+}
+
+#[test]
+fn every_preset_picker_title_and_empty_tab_strip_use_the_normal_cursor() {
+    for panel in PRESET_PICKERS {
+        let mut h = floating_picker_harness(panel);
+        let title = h.ctx.read_response(floating_picker_drag_id("move-title", panel)).expect("shared floating title drag target");
+        h.hover_at(title.rect.center());
+        h.run_steps(1);
+        assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default, "{panel} title uses the normal cursor");
+
+        let strip = h.ctx.read_response(floating_picker_drag_id("move-group-background", panel)).expect("shared empty tab-strip drag target");
+        h.hover_at(strip.rect.right_center() - vec2(8.0, 0.0));
+        h.run_steps(1);
+        assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default, "{panel} tab strip uses the normal cursor");
+    }
+}
+
+#[test]
+fn every_preset_picker_tab_can_still_be_dragged_into_a_docked_group() {
+    for panel in PRESET_PICKERS {
+        let mut h = floating_picker_harness(panel);
+        let tab_id = egui::Id::new("photocraft-panel-docking").with(("tab", &panel.to_string()));
+        let target_id = egui::Id::new("photocraft-panel-docking").with(("tab", &"layers".to_string()));
+        let source = h.ctx.read_response(tab_id).expect("shared draggable picker tab").rect.center();
+        let target = h.ctx.read_response(target_id).expect("docked Layers tab target").rect.center();
+        drag(&mut h, source, target);
+        let layout = h.state().ui.docking.as_ref().unwrap();
+        assert!(!layout.floating.iter().any(|group| group.panels.iter().any(|member| member == panel)), "{panel} tab should dock into the target group");
+        assert!(group_members(layout, "layers").contains(&panel.to_string()), "{panel} remains dockable by dragging its tab");
+    }
 }
 
 #[test]
@@ -740,7 +833,7 @@ fn floating_tab_strip_drag_target_covers_the_full_strip_behind_tabs() {
         .ctx
         .read_response(egui::Id::new("photocraft-panel-docking").with(("move-group-background", Some(&"swatches".to_string()))))
         .expect("floating tab-strip drag target");
-    let expected_strip_top = floating.top() + 15.0;
+    let expected_strip_top = floating.top() + 22.0;
     assert!((drag.rect.left() - floating.left()).abs() < 0.5, "drag target should start at the left edge of the tab strip: {:?}", drag.rect);
     assert!((drag.rect.top() - expected_strip_top).abs() < 0.5, "drag target should cover the tab strip: {:?}", drag.rect);
     assert!((drag.rect.right() - (floating.right() - 28.0)).abs() < 0.5, "menu controls must remain outside the drag target: {:?}", drag.rect);

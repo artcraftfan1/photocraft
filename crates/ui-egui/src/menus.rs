@@ -109,10 +109,17 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         crate::canvas::commit_crop(app);
         return Ok(json!({"committed": true}));
     }
-    // These Window-menu items open standalone preset windows; direct panel-docking commands still
-    // retain their separate meaning for the docked Color-card presentations.
-    if crate::pickers::preset_panels::handles(id) {
-        return crate::pickers::preset_panels::menu(app, id, &params).unwrap_or(Ok(Value::Null));
+    // Preset-library panels use the shared docking surface, including its floating tab strip and close control.
+    if crate::pickers::preset_panels::shared_docking(id) {
+        let panel = &id["window.panel.".len()..];
+        let floating = app.ui.docking.as_ref().is_some_and(|layout| layout.floating.iter().any(|group| group.panels.iter().any(|member| member == panel)));
+        let show = params.get("show").and_then(Value::as_bool).unwrap_or(!floating);
+        return crate::panel_docking::command(
+            app,
+            if show { "window.panel.float" } else { "window.panel.close" },
+            &json!({"panel":panel}),
+        )
+        .unwrap_or(Ok(Value::Null));
     }
     if let Some(result) = crate::panel_docking::command(app, id, &params) {
         return result;
@@ -652,6 +659,9 @@ fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+    if crate::pickers::preset_panels::shared_docking(id) {
+        return !app.session.prefs().workspace_locked;
+    }
     if crate::tool_shortcuts::tool(id).is_some() {
         return true;
     }
@@ -680,7 +690,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     if crate::analysis_ui::handles(id) {
         return true;
     }
-    if crate::pickers::preset_panels::handles(id) || crate::type_panels_ui::handles(id) || crate::timeline_ui::handles(id) {
+    if crate::type_panels_ui::handles(id) || crate::timeline_ui::handles(id) {
         return true;
     }
     if let Some(e) = crate::view_cmds::is_enabled(app, id) {
@@ -768,9 +778,6 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
         return Some(c);
     }
     if let Some(c) = crate::analysis_ui::checked(app, id).or_else(|| crate::workspace_ui::checked(app, id)).or_else(|| crate::file_ui::checked(app, id)) {
-        return Some(c);
-    }
-    if let Some(c) = crate::pickers::preset_panels::checked(app, id) {
         return Some(c);
     }
     if let Some(c) = crate::timeline_ui::checked(app, id) {
@@ -894,10 +901,10 @@ pub fn is_live(id: &str) -> bool {
         || workspace_name(id).is_some()
         || proof_preset(id).is_some()
         || id == "view.proofSetup.custom"
+        || crate::pickers::preset_panels::shared_docking(id)
         || crate::view_cmds::handles(id)
         || crate::analysis_ui::handles(id)
         || crate::workspace_ui::handles(id)
-        || crate::pickers::preset_panels::handles(id)
         || crate::type_panels_ui::handles(id)
         || crate::timeline_ui::handles(id)
 }
