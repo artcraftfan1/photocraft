@@ -528,8 +528,10 @@ fn paint_picker_card(ui: &egui::Ui, rect: egui::Rect, preset: &BrushPreset, sele
         let cell = egui::Rect::from_min_max(pos2(x, top.top()), top.right_bottom());
         if show_stroke {
             let width = ((cell.width() - 16.0 * scale).clamp(24.0 * scale, 260.0 * scale)).min(cell.width()).max(1.0).round();
-            let height = (36.0 * scale_h).round().max(1.0) as u32;
-            let stroke = brush_preview::stroke_texture(ui.ctx(), &format!("brushes-stroke-{width}:{identity}"), brush, width as u32, height, t.text);
+            // Card scale changes the destination rectangle, not the brush's stroke. Keep one
+            // canonical preview per preset so dragging the footer slider doesn't rasterize and
+            // upload a new texture for every intermediate width/height.
+            let stroke = brush_preview::stroke_texture(ui.ctx(), &format!("brushes-stroke:{identity}"), brush, 260, 36, t.text);
             let stroke_rect = egui::Rect::from_min_size(pos2(cell.left() + 8.0 * scale, cell.center().y - 18.0 * scale_h), vec2(width, 36.0 * scale_h));
             ui.painter().image(stroke.id(), stroke_rect, full_uv(), Color32::WHITE);
         } else {
