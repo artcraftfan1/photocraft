@@ -292,7 +292,9 @@ pub fn body(
     };
     let mut footer = |ui: &mut egui::Ui| {
         ui.add_space((size.y - (ui.cursor().min.y - top) - SLIDER_H).max(FOOTER_GAP));
-        scale_slider(ui, &mut state.borrow_mut());
+        // The browser is inset inside the picker shell; subtract that inset so the slider's cap
+        // matches the width available to its cards rather than the outer frame.
+        scale_slider(ui, &mut state.borrow_mut(), (size.x - 16.0).max(0.0));
     };
     let show_search = { preset_ui.borrow().search_visible.get("brush-picker").copied().unwrap_or(true) };
 
@@ -324,10 +326,13 @@ pub fn body(
 /// under which the cards' padding and rows stop making sense; 0.40 and below is where
 /// [`brushes_tab`]'s cards go compact, the tips dropping their size numbers (the text itself
 /// holds its size at every scale).
-fn scale_slider(ui: &mut egui::Ui, st: &mut BrushesPanelState) {
+fn scale_slider(ui: &mut egui::Ui, st: &mut BrushesPanelState, container_width: f32) {
     let w = (ui.available_width() - GRIP_ROOM).max(60.0);
     ui.allocate_ui_with_layout(vec2(w, SLIDER_H), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-        let resp = widgets::slider(ui, &mut st.scale, SCALE_RANGE, None);
+        let show = (st.show_name, st.show_stroke, st.show_tip);
+        let max_scale = crate::pickers::brush_browser::max_picker_card_scale(container_width, show);
+        st.scale = st.scale.clamp(*SCALE_RANGE.start(), max_scale);
+        let resp = widgets::slider(ui, &mut st.scale, *SCALE_RANGE.start()..=max_scale, None);
         if resp.changed() {
             st.scale = (st.scale * 100.0).round() / 100.0;
         }

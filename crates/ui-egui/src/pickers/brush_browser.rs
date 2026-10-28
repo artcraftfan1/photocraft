@@ -265,7 +265,12 @@ pub(crate) fn picker_browser(
             preset_ui.selected.remove(PANEL);
         }
     }
-    let scale = brush_state.scale.clamp(*SCALE_RANGE.start(), *SCALE_RANGE.end());
+    // The footer slider is bounded by the browser's actual width. Otherwise a large scale makes
+    // a single card wider than the scroll area's clip region, and the item can spill into the
+    // picker frame. Keep the same cap in the slider so it stops at the container edge.
+    let scale_max = max_picker_card_scale(ui.available_width(), show_parts(brush_state));
+    let scale = brush_state.scale.clamp(*SCALE_RANGE.start(), scale_max);
+    brush_state.scale = scale;
     let selected_key = preset_ui.selected.get(PANEL).cloned();
     let scale_h = scale.max(CARD_MIN_H_SCALE);
     let show = (brush_state.show_name, brush_state.show_stroke, brush_state.show_tip);
@@ -828,6 +833,24 @@ pub(crate) const CARD_NUM_FONT: f32 = 11.0;
 /// The cards' own fill: [`Tokens::card`] (what the picker's popup is filled with) this much
 /// darker, so the cards read as tiles against it.
 const CARD_BG_SHADE: f32 = 0.90;
+
+/// Maximum footer scale that keeps a picker card within the available browser width.
+pub(crate) fn max_picker_card_scale(width: f32, show: (bool, bool, bool)) -> f32 {
+    let base_width = if tip_only(show) {
+        CARD_TIP_ONLY_W
+    } else if tip_and_name(show) {
+        CARD_TIP_NAME_W
+    } else {
+        CARD_MAX_W
+    };
+    // The grid's base inset is 8 points. Keep the minimum slider scale available for narrow
+    // pickers; for normal widths the upper bound is exactly where the card meets the container.
+    ((width - 8.0).max(0.0) / base_width).clamp(*SCALE_RANGE.start(), *SCALE_RANGE.end())
+}
+
+fn show_parts(state: &BrushesPanelState) -> (bool, bool, bool) {
+    (state.show_name, state.show_stroke, state.show_tip)
+}
 
 /// The picker's cards in a list `width` points wide, `indent` past its left edge: how wide each
 /// card is and how many sit in a row. A lone card fills the room up to [`CARD_MAX_W`] × `scale`
