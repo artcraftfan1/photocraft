@@ -251,6 +251,7 @@ pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             canvas,
             flush: false,
             center_grid: false,
+            grid_indent: 8.0,
             all_groups_open: false,
             compact_context_menus: false,
             item_size: None,
@@ -319,6 +320,7 @@ pub fn shapes_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             canvas,
             flush: false,
             center_grid: false,
+            grid_indent: 8.0,
             all_groups_open: false,
             compact_context_menus: false,
             item_size: None,
@@ -879,7 +881,11 @@ mod tests {
         st.delete_group("gradients", "C/D");
         assert!(st.toggled.contains("gradients/A/B/Inner"));
         assert_ne!(
-            format!("brush-picker/{}/{}", crate::pickers::picker_state::escape_hierarchy_key_part("A"), crate::pickers::picker_state::escape_hierarchy_key_part("B/C")),
+            format!(
+                "brush-picker/{}/{}",
+                crate::pickers::picker_state::escape_hierarchy_key_part("A"),
+                crate::pickers::picker_state::escape_hierarchy_key_part("B/C")
+            ),
             format!(
                 "brush-picker/{}/{}/{}",
                 crate::pickers::picker_state::escape_hierarchy_key_part("A"),
@@ -956,6 +962,7 @@ mod tests {
                 canvas: Rect::NOTHING,
                 flush: false,
                 center_grid: false,
+                grid_indent: 8.0,
                 all_groups_open: false,
                 compact_context_menus: false,
                 item_size: None,
@@ -998,6 +1005,7 @@ mod tests {
                 canvas: Rect::NOTHING,
                 flush: false,
                 center_grid: false,
+                grid_indent: 8.0,
                 all_groups_open: false,
                 compact_context_menus: false,
                 item_size: None,
@@ -1093,6 +1101,7 @@ mod tests {
                 canvas: Rect::NOTHING,
                 flush: false,
                 center_grid: false,
+                grid_indent: 8.0,
                 all_groups_open: false,
                 compact_context_menus: false,
                 item_size: None,
@@ -1309,6 +1318,7 @@ mod tests {
                 canvas: Rect::NOTHING,
                 flush: false,
                 center_grid: false,
+                grid_indent: 8.0,
                 all_groups_open: false,
                 compact_context_menus: false,
                 item_size: None,

@@ -63,6 +63,7 @@ pub(crate) fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             canvas,
             flush: false,
             center_grid: false,
+            grid_indent: 8.0,
             all_groups_open: false,
             compact_context_menus: false,
             item_size: None,

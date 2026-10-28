@@ -17,9 +17,9 @@ use egui::{RichText, vec2};
 use photocraft_engine::paint::MAX_BRUSH_SIZE;
 use serde_json::json;
 
-use crate::pickers::brush_browser::preview_identity;
 use crate::brush_panel::{BrushesView, commit_gesture, run_or_status};
 use crate::brush_preview;
+use crate::pickers::brush_browser::preview_identity;
 use crate::pickers::picker_shell::{CustomShellOptions, picker_shell_custom};
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons, widgets};
@@ -94,6 +94,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             &app.session.tools.presets,
             app.session.tools.current_preset.as_deref(),
             &mut app.ui.brushes_panel,
+            &mut app.ui.presets_ui,
             ListLayout { max_height: allocated_h, ..layout },
         )
     });

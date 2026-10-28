@@ -142,6 +142,8 @@ pub(crate) struct BrowserOptions {
     pub(crate) flush: bool,
     /// Centre a partially filled grid row in the available item area.
     pub(crate) center_grid: bool,
+    /// Left inset for grid items before nested-folder indentation is added.
+    pub(crate) grid_indent: f32,
     /// Start every group expanded rather than only the first group.
     pub(crate) all_groups_open: bool,
     /// Use nested menu submenus for context actions inside a parent popup.
@@ -258,7 +260,6 @@ fn compact_context_menu_target(ui: &mut egui::Ui, resp: egui::Response, menu: im
 
 /// Space between the cells of a preset grid, and the grid's inset from the panel's left edge.
 const GRID_GAP: f32 = 4.0;
-const GRID_INSET: f32 = 8.0;
 type FolderRelease = (AssetDrag, String, Vec<String>, bool);
 
 /// Draw only the reusable library region. It owns groups/items, selection, drag/drop and item/group
@@ -271,8 +272,17 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
     let panel = adapter.panel;
     let query = st.search.get(panel).map(|query| query.trim().to_lowercase()).unwrap_or_default();
     let groups = adapter.groups;
-    let BrowserOptions { canvas, flush, center_grid, all_groups_open, compact_context_menus, item_size, list_item_height, domain_hierarchy_actions } =
-        adapter.options;
+    let BrowserOptions {
+        canvas,
+        flush,
+        center_grid,
+        grid_indent,
+        all_groups_open,
+        compact_context_menus,
+        item_size,
+        list_item_height,
+        domain_hierarchy_actions,
+    } = adapter.options;
     let capabilities = adapter.capabilities;
     let item_context_menu = adapter.item_context_menu;
     let group_context_menu = adapter.group_context_menu;
@@ -368,6 +378,15 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
+            // Keep drag targets reachable when a preset or hierarchy node is dragged beyond the
+            // current viewport. This behavior belongs to the shared scrollable browser, not to a
+            // particular asset consumer.
+            let dragging = egui::DragAndDrop::has_payload_of_type::<AssetDrag>(ui.ctx()) && ui.input(|i| i.pointer.primary_down());
+            let delta = crate::panels::layer_drag_edge_scroll(ui.ctx().pointer_interact_pos(), ui.clip_rect(), dragging, ui.input(|i| i.stable_dt));
+            if delta != 0.0 {
+                ui.scroll_with_delta(vec2(0.0, delta));
+                ui.ctx().request_repaint();
+            }
             let mut hidden_groups = BTreeSet::new();
             for &(gi, depth) in &display {
                 let Some(g) = groups.get(gi) else { continue };
@@ -381,7 +400,9 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                     hidden_groups.insert(g.name.clone());
                     continue;
                 }
-                let open = group_open(st, panel, gi, &g.name, all_groups_open);
+                // A non-empty query should reveal matching items even when their group was
+                // collapsed before the search began.
+                let open = !query.is_empty() || group_open(st, panel, gi, &g.name, all_groups_open);
                 if !open {
                     hidden_groups.insert(g.name.clone());
                 }
@@ -481,6 +502,9 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                         let ev_cell = std::cell::RefCell::new(&mut ev);
                         let mut draw_folder = |ui: &mut egui::Ui, folder: &HierarchyFolder<'_, ItemView>, folder_open: bool, folder_depth: usize| {
                             let (fr, fresp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click_and_drag());
+                            fresp.widget_info(|| {
+                                egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, folder.path.last().map(String::as_str).unwrap_or(""))
+                            });
                             paint_asset_browser_header(
                                 ui,
                                 fr,
@@ -522,7 +546,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                             let w = ui.available_width();
                             let group_indent = depth as f32 * 14.0;
                             let indent = folder_depth as f32 * 14.0;
-                            let pad = group_indent + (if list { 0.0 } else { GRID_INSET }) + indent;
+                            let pad = group_indent + (if list { 0.0 } else { grid_indent }) + indent;
                             let gap = if list || flush { 0.0 } else { GRID_GAP };
                             let (cell, cols) = if list {
                                 let row_h = list_item_height.unwrap_or(24.0).max(1.0);

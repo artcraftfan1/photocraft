@@ -92,6 +92,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             canvas,
             flush: true,
             center_grid: false,
+            grid_indent: 8.0,
             all_groups_open: true,
             compact_context_menus: false,
             item_size: None,
