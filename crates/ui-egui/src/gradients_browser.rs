@@ -3,13 +3,15 @@
 use egui::{Rect, pos2};
 use serde_json::json;
 
-use crate::asset_browser::{BrowserAdapter, BrowserCapabilities, BrowserOptions, BrowserAction, GroupView, ItemView, standard_group_context_menu, standard_item_context_menu};
+use crate::PhotocraftApp;
+use crate::asset_browser::{
+    BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView, standard_group_context_menu, standard_item_context_menu,
+};
 use crate::asset_browser_interaction::canvas_drop_rect;
 use crate::picker_footer::FooterOptions;
 use crate::picker_shell::{ShellOptions, picker_shell};
 use crate::preset_commands::{generic, run};
 use crate::preset_preview::c32;
-use crate::PhotocraftApp;
 
 /// Draw a gradient swatch, showing transparency over the standard checkerboard.
 pub(crate) fn paint_gradient(ui: &egui::Ui, rect: Rect, stops: &[(f32, [f32; 4])]) {
@@ -57,7 +59,16 @@ pub(crate) fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut adapter = BrowserAdapter {
         panel: "gradients",
         groups: &groups,
-        options: BrowserOptions { canvas, flush: false, all_groups_open: false, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+        options: BrowserOptions {
+            canvas,
+            flush: false,
+            center_grid: false,
+            all_groups_open: false,
+            compact_context_menus: false,
+            item_size: None,
+            list_item_height: None,
+            domain_hierarchy_actions: false,
+        },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
@@ -66,34 +77,39 @@ pub(crate) fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         paint_item: &mut |ui, rect, group_index, item_index| {
             let group = &groups[group_index];
             let key = &group.items[item_index].key;
-            let stops = library.iter().find(|g| g.name == group.name).and_then(|g| g.items.iter().find(|item| &item.name == key))
-                .map(|item| item.resolve(foreground, background)).unwrap_or_default();
+            let stops = library
+                .iter()
+                .find(|g| g.name == group.name)
+                .and_then(|g| g.items.iter().find(|item| &item.name == key))
+                .map(|item| item.resolve(foreground, background))
+                .unwrap_or_default();
             paint_gradient(ui, rect, &stops);
         },
         paint_list_item: None,
     };
-    let mut menu = |ui: &mut egui::Ui, state: &mut crate::picker_state::PresetUi, panel: &str| {
-        ui.menu_button(tl!("Panel menu"), |ui| {
-            crate::picker_shell::search_toggle(ui, state, panel);
-            ui.separator();
-            if ui.button(tl!("Import .GRD")).clicked() {
-                crate::preset_files_ui::import_gradients_dialog(app);
-                ui.close();
-            }
-            ui.separator();
-            if ui.button(tl!("Reset Gradients")).clicked() {
-                run(app, "gradient.presets.reset", json!({}));
-                ui.close();
-            }
-        });
+    let events = {
+        let mut menu = |ui: &mut egui::Ui, state: &mut crate::picker_state::PresetUi, panel: &str| {
+            ui.menu_button(tl!("Panel menu"), |ui| {
+                crate::picker_shell::search_toggle(ui, state, panel);
+                ui.separator();
+                if ui.button(tl!("Import .GRD")).clicked() {
+                    crate::preset_files_ui::import_gradients_dialog(app);
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button(tl!("Reset")).clicked() {
+                    run(app, "gradient.presets.reset", json!({}));
+                    ui.close();
+                }
+            });
+        };
+        picker_shell(
+            ui,
+            &mut state,
+            &mut adapter,
+            ShellOptions { panel_options: Some(&mut menu), footer: Some(FooterOptions::standard(tl!("Create new gradient"))), ..Default::default() },
+        )
     };
-    let events = picker_shell(
-        ui,
-        &mut state,
-        &mut adapter,
-        ShellOptions { panel_options: Some(&mut menu), footer: Some(FooterOptions::standard(tl!("Create new gradient"))), ..Default::default() },
-    );
-    drop(menu);
     app.ui.presets_ui = state;
 
     for event in events {
@@ -107,7 +123,7 @@ pub(crate) fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 run(app, "gradient.presets.apply", json!({"preset": key}));
             }
             // Only the brush browser supports nested-folder context actions.
-            BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => {},
+            BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => {}
             _ => {
                 generic(app, "gradients", "gradient.presets", &event, json!({"name": "Custom"}));
             }

@@ -25,9 +25,9 @@ use photocraft_engine::BrushSettings;
 use photocraft_engine::paint::{BrushPreset, MAX_BRUSH_SIZE, TipShape};
 use serde_json::{Value, json};
 
+pub(crate) use crate::brush_browser::SCALE_RANGE;
 use crate::brush_panel::BrushesPanelState;
 use crate::brushes_tab::{self, Action};
-pub(crate) use crate::brush_browser::SCALE_RANGE;
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons, widgets};
 
@@ -294,9 +294,7 @@ pub fn body(
         ui.add_space((size.y - (ui.cursor().min.y - top) - SLIDER_H).max(FOOTER_GAP));
         scale_slider(ui, &mut state.borrow_mut());
     };
-    let show_search = {
-        preset_ui.borrow().search_visible.get("brush-picker").copied().unwrap_or(true)
-    };
+    let show_search = { preset_ui.borrow().search_visible.get("brush-picker").copied().unwrap_or(true) };
 
     let list_picks = crate::picker_shell::picker_shell_custom(
         ui,
@@ -309,20 +307,10 @@ pub fn body(
         },
         |ui, allocated_h| {
             let actions = {
-                    let mut brush_state = state.borrow_mut();
-                    crate::brush_browser::picker_browser(
-                        ui,
-                        presets,
-                        current,
-                        &mut brush_state,
-                        &mut **preset_ui.borrow_mut(),
-                        (allocated_h - 4.0).max(80.0),
-                    )
+                let mut brush_state = state.borrow_mut();
+                crate::brush_browser::picker_browser(ui, presets, current, &mut brush_state, &mut preset_ui.borrow_mut(), (allocated_h - 4.0).max(80.0))
             };
-            actions
-                .into_iter()
-                .map(Pick::List)
-                .collect::<Vec<_>>()
+            actions.into_iter().map(Pick::List).collect::<Vec<_>>()
         },
     );
     picks.borrow_mut().extend(list_picks);
@@ -382,8 +370,7 @@ pub fn resize_grip(ui: &mut egui::Ui, frame: egui::Rect, content: egui::Vec2) ->
     let resp = grip_ui.interact(grip, ui.id().with("brush-picker-resize"), egui::Sense::drag());
     dismiss_popup(&resp);
     let corner = grip.right_bottom() - vec2(3.0, 3.0);
-    for i in 0..3 {
-        let o = i as f32 * 4.0;
+    for o in [0.0, 4.0, 8.0] {
         grip_ui.painter().line_segment([corner - vec2(o, 0.0), corner - vec2(0.0, o)], Stroke::new(1.0, t.text_faint));
     }
     if resp.hovered() || resp.dragged() {
@@ -429,7 +416,7 @@ fn gear_menu(
         let current = current.filter(|_| !ambiguous).and_then(|name| presets.iter().find(|preset| preset.name.eq_ignore_ascii_case(name)));
         let rename = ui.add_enabled(current.is_some(), egui::Button::new(tl!("Rename Brush…")));
         if ambiguous {
-            rename.clone().on_hover_text(tl!("Rename unavailable because multiple brushes share this name"));
+            rename.clone().on_hover_text("Rename unavailable because multiple brushes share this name");
         }
         if rename.clicked()
             && let Some(preset) = current
@@ -439,7 +426,7 @@ fn gear_menu(
         }
         let delete = ui.add_enabled(current.is_some(), egui::Button::new(tl!("Delete Brush")));
         if ambiguous {
-            delete.clone().on_hover_text(tl!("Delete unavailable because multiple brushes share this name"));
+            delete.clone().on_hover_text("Delete unavailable because multiple brushes share this name");
         }
         if delete.clicked()
             && let Some(preset) = current

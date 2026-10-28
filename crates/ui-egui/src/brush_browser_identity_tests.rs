@@ -9,14 +9,7 @@ use crate::brush_browser::{browser_group_views, is_ambiguous_preset_name, preset
 
 fn preset(name: &str, group: &str, size: f32) -> BrushPreset {
     let brush = BrushSettings { size, ..BrushSettings::default() };
-    BrushPreset {
-        name: name.into(),
-        brush,
-        builtin: false,
-        group: group.into(),
-        folder: Vec::new(),
-        captures: Default::default(),
-    }
+    BrushPreset { name: name.into(), brush, builtin: false, group: group.into(), folder: Vec::new(), captures: Default::default() }
 }
 
 #[test]

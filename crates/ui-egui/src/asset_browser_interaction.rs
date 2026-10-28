@@ -33,14 +33,15 @@ pub(crate) enum HierarchyDrop {
     MoveInto { group: String, folder: Vec<String>, into: Option<(String, Vec<String>)>, before: Option<String> },
 }
 
+/// Which kinds of drops a particular hierarchy header accepts.
+#[derive(Clone, Copy)]
+pub(crate) struct HeaderDropCapabilities {
+    pub(crate) item_drop: bool,
+    pub(crate) group_drag: bool,
+}
+
 /// Resolve a hierarchy-header drop without coupling to a consumer's command type.
-pub(crate) fn hierarchy_folder_drop(
-    src_group: &str,
-    src_folder: &[String],
-    target_group: &str,
-    target_folder: &[String],
-    edge: bool,
-) -> Option<HierarchyDrop> {
+pub(crate) fn hierarchy_folder_drop(src_group: &str, src_folder: &[String], target_group: &str, target_folder: &[String], edge: bool) -> Option<HierarchyDrop> {
     if src_group == target_group && target_folder.starts_with(src_folder) {
         return None;
     }
@@ -84,16 +85,16 @@ pub(crate) fn asset_browser_header_target(
     scope: &str,
     group: &str,
     folder: &[String],
-    item_drop: bool,
-    group_drag: bool,
+    capabilities: HeaderDropCapabilities,
 ) -> Option<AssetDrag> {
+    let HeaderDropCapabilities { item_drop, group_drag } = capabilities;
     if !item_drop && !group_drag {
         return None;
     }
     if group_drag {
         response.dnd_set_drag_payload(asset_browser_header_payload(scope, group, folder));
     }
-    let hovered = response.dnd_hover_payload::<AssetDrag>().map(|payload| (*payload).clone());
+    let hovered = response.dnd_hover_payload::<AssetDrag>().map(|payload| payload.as_ref().clone());
     if let Some(dragged) = hovered.as_ref() {
         let pointer = ui.ctx().pointer_interact_pos();
         let edge = pointer.is_some_and(|p| header_drop_before(rect, p));
@@ -121,7 +122,7 @@ pub(crate) fn asset_browser_header_target(
             _ => {}
         }
     }
-    response.dnd_release_payload::<AssetDrag>().map(|payload| (*payload).clone()).filter(|drag| match drag {
+    response.dnd_release_payload::<AssetDrag>().map(|payload| payload.as_ref().clone()).filter(|drag| match drag {
         AssetDrag::Preset { scope: drag_scope, .. } => item_drop && drag_scope == scope,
         AssetDrag::Group { scope: drag_scope, name } if group_drag && drag_scope == scope => {
             let pointer = ui.ctx().pointer_interact_pos();
@@ -138,24 +139,18 @@ pub(crate) fn asset_browser_header_target(
 }
 
 /// Shared item hit target and insertion indicator.
-pub(crate) fn asset_browser_item_target(
-    ui: &egui::Ui,
-    response: &egui::Response,
-    rect: Rect,
-    scope: &str,
-    key: &str,
-    grid: bool,
-) -> Option<AssetDrag> {
+pub(crate) fn asset_browser_item_target(ui: &egui::Ui, response: &egui::Response, rect: Rect, scope: &str, key: &str, grid: bool) -> Option<AssetDrag> {
     let t = Tokens::get(ui.ctx());
     response.dnd_set_drag_payload(AssetDrag::Preset { scope: scope.to_string(), key: key.to_string() });
-    let hovered = response.dnd_hover_payload::<AssetDrag>().map(|payload| (*payload).clone());
+    let hovered = response.dnd_hover_payload::<AssetDrag>().map(|payload| payload.as_ref().clone());
     if matches!(&hovered, Some(AssetDrag::Preset { scope: drag_scope, key: dragged }) if drag_scope.as_str() == scope && dragged.as_str() != key) {
         let after = ui.ctx().pointer_interact_pos().is_some_and(|p| if grid { p.x > rect.center().x } else { p.y > rect.center().y });
         crate::widgets::drop_line(ui, rect, after, grid, &t);
     }
-    response.dnd_release_payload::<AssetDrag>().map(|payload| (*payload).clone()).filter(|drag| {
-        matches!(drag, AssetDrag::Preset { scope: drag_scope, key: dragged } if drag_scope == scope && dragged != key)
-    })
+    response
+        .dnd_release_payload::<AssetDrag>()
+        .map(|payload| payload.as_ref().clone())
+        .filter(|drag| matches!(drag, AssetDrag::Preset { scope: drag_scope, key: dragged } if drag_scope == scope && dragged != key))
 }
 
 /// Common click/double-click semantics for asset rows and cards.
@@ -245,11 +240,7 @@ mod hierarchy_folder_drop_tests {
     fn allows_reordering_a_folder_before_a_sibling() {
         assert_eq!(
             hierarchy_folder_drop("Library", &path(&["Brushes", "Favorites"]), "Library", &path(&["Brushes", "Recent"]), true),
-            Some(HierarchyDrop::MoveGroup {
-                group: "Library".to_string(),
-                folder: path(&["Brushes", "Favorites"]),
-                before: Some("Recent".to_string()),
-            }),
+            Some(HierarchyDrop::MoveGroup { group: "Library".to_string(), folder: path(&["Brushes", "Favorites"]), before: Some("Recent".to_string()) }),
         );
     }
 

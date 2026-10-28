@@ -5,17 +5,15 @@ use photocraft_engine::paint::BrushPreset;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::asset_browser_hierarchy::{HierarchyFolder, HierarchyNode, draw_hierarchy, hierarchy_tree};
-use crate::asset_browser::{
-    self, BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView,
-};
+use crate::asset_browser::{self, BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView};
 use crate::asset_browser_groups::header as asset_browser_header;
-use crate::asset_browser_items::{item_info as asset_browser_item_info, list_row as asset_browser_list_row};
+use crate::asset_browser_hierarchy::{HierarchyFolder, HierarchyNode, draw_hierarchy, hierarchy_tree};
+pub(crate) use crate::asset_browser_interaction::AssetDrag as BrushDrag;
 use crate::asset_browser_interaction::{
     ContextMenuAction, HierarchyDrop, asset_browser_header_target, asset_browser_item_gesture, asset_browser_item_target, context_menu_target,
     draw_group_context_menu, draw_item_context_menu, header_drop_before, hierarchy_folder_drop,
 };
-pub(crate) use crate::asset_browser_interaction::AssetDrag as BrushDrag;
+use crate::asset_browser_items::{item_info as asset_browser_item_info, list_row as asset_browser_list_row};
 use crate::brush_preview;
 use crate::picker_state::{FolderRenameState, PresetUi};
 use crate::theme::Tokens;
@@ -122,7 +120,6 @@ impl Default for BrushesPanelState {
     }
 }
 
-
 /// What a preset list does after drawing (the presets are borrowed while it draws).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -218,10 +215,8 @@ fn brush_group_views(presets: &[BrushPreset]) -> Vec<BrushGroupView<'_>> {
         .into_iter()
         .map(|(name, indices)| {
             let presets: Vec<&BrushPreset> = indices.into_iter().filter_map(|i| presets.get(i)).collect();
-            let items = presets
-                .iter()
-                .map(|preset| ItemView { key: preview_identity(preset), name: preset.name.clone(), folder: preset.folder.clone() })
-                .collect();
+            let items =
+                presets.iter().map(|preset| ItemView { key: preview_identity(preset), name: preset.name.clone(), folder: preset.folder.clone() }).collect();
             BrushGroupView { view: GroupView { name, items }, presets }
         })
         .collect()
@@ -253,10 +248,13 @@ pub(crate) fn picker_browser(
     // Keep each projection paired with its source presets. Joining by display name picks the first
     // match when two groups contain a brush with the same name, painting the wrong preview.
     let group_views = brush_group_views(presets);
-    let groups: Vec<GroupView> = group_views.iter().map(|group| GroupView {
-        name: group.view.name.clone(),
-        items: group.view.items.iter().map(|item| ItemView { key: item.key.clone(), name: item.name.clone(), folder: item.folder.clone() }).collect(),
-    }).collect();
+    let groups: Vec<GroupView> = group_views
+        .iter()
+        .map(|group| GroupView {
+            name: group.view.name.clone(),
+            items: group.view.items.iter().map(|item| ItemView { key: item.key.clone(), name: item.name.clone(), folder: item.folder.clone() }).collect(),
+        })
+        .collect();
 
     preset_ui.sizes.insert(PANEL.to_string(), 40.0);
     match current {
@@ -281,7 +279,7 @@ pub(crate) fn picker_browser(
     } else if tip_and_name(show) {
         (CARD_TIP_NAME_W * scale, CARD_TIP_NAME_H * scale_h)
     } else {
-        (CARD_MAX_W * scale, CARD_MAX_H * scale_h)
+        (CARD_MAX_W * scale, (CARD_MAX_H - if brush_state.show_name { 0.0 } else { CARD_NAME_H }) * scale_h)
     };
 
     let mut paint_item = |ui: &egui::Ui, rect: egui::Rect, gi: usize, ii: usize| {
@@ -300,6 +298,7 @@ pub(crate) fn picker_browser(
         options: BrowserOptions {
             canvas: egui::Rect::NOTHING,
             flush: false,
+            center_grid: tip_only(show),
             all_groups_open: true,
             // The brush picker is an egui Area, not a parent Menu; use a normal context popup so
             // its menu actions can extend beyond the picker without being dismissed as a submenu.
@@ -317,33 +316,36 @@ pub(crate) fn picker_browser(
         paint_list_item: Some(&mut paint_list_item),
     };
     let browser_actions = asset_browser::browser(ui, preset_ui, &mut adapter, allocated_height);
+    paint_brush_drag_ghost(ui, presets, PANEL, egui::Id::new(("brush-drag-label", PANEL)));
 
     let actions: Vec<Action> = browser_actions
         .into_iter()
         .filter_map(|action| match action {
             BrowserAction::Select(key) => occurrence_name(presets, &key).map(Action::Select),
             BrowserAction::Activate(key) => occurrence_name(presets, &key).map(Action::Choose),
-            BrowserAction::Rename(key, text) => occurrence_name(presets, &key).map(|name| Action::Rename(Renaming { group: false, name, folder: Vec::new(), text })),
+            BrowserAction::Rename(key, text) => {
+                occurrence_name(presets, &key).map(|name| Action::Rename(Renaming { group: false, name, folder: Vec::new(), text }))
+            }
             BrowserAction::Delete(key) => occurrence_name(presets, &key).map(Action::Delete),
-            BrowserAction::Move(key, group) => occurrence_name(presets, &key).map(|name| Action::Move { name, group: group_key(presets, &group), folder: Some(Vec::new()), index: None }),
+            BrowserAction::Move(key, group) => {
+                occurrence_name(presets, &key).map(|name| Action::Move { name, group: group_key(presets, &group), folder: Some(Vec::new()), index: None })
+            }
             BrowserAction::MoveItem(key, group, index) => {
                 occurrence_name(presets, &key).map(|name| Action::Move { name, group: group_key(presets, &group), folder: Some(Vec::new()), index })
             }
-            BrowserAction::MoveItemToFolder { key, group, folder, before: Some(before) } => occurrence_name(presets, &key).zip(occurrence_name(presets, &before)).map(|(name, before)| Action::MoveBefore { name, group: group_key(presets, &group), folder: Some(folder), before }),
-            BrowserAction::MoveItemToFolder { key, group, folder, before: None } => occurrence_name(presets, &key).map(|name| Action::Move { name, group: group_key(presets, &group), folder: Some(folder), index: None }),
-            BrowserAction::RenameGroup(group, text) => Some(Action::Rename(Renaming {
-                group: true,
-                name: group_key(presets, &group),
-                folder: Vec::new(),
-                text,
-            })),
+            BrowserAction::MoveItemToFolder { key, group, folder, before: Some(before) } => occurrence_name(presets, &key)
+                .zip(occurrence_name(presets, &before))
+                .map(|(name, before)| Action::MoveBefore { name, group: group_key(presets, &group), folder: Some(folder), before }),
+            BrowserAction::MoveItemToFolder { key, group, folder, before: None } => {
+                occurrence_name(presets, &key).map(|name| Action::Move { name, group: group_key(presets, &group), folder: Some(folder), index: None })
+            }
+            BrowserAction::RenameGroup(group, text) => {
+                Some(Action::Rename(Renaming { group: true, name: group_key(presets, &group), folder: Vec::new(), text }))
+            }
             BrowserAction::DeleteGroup(group) => Some(Action::DeleteGroup { group: group_key(presets, &group), folder: Vec::new() }),
-            BrowserAction::RenameFolder { group, folder, text } => Some(Action::Rename(Renaming {
-                group: true,
-                name: group_key(presets, &group),
-                folder,
-                text,
-            })),
+            BrowserAction::RenameFolder { group, folder, text } => {
+                Some(Action::Rename(Renaming { group: true, name: group_key(presets, &group), folder, text }))
+            }
             BrowserAction::DeleteFolder { group, folder } => Some(Action::DeleteGroup { group: group_key(presets, &group), folder }),
             BrowserAction::MoveGroup { group, folder, before } => Some(Action::MoveGroup {
                 group: group_key(presets, &group),
@@ -399,15 +401,8 @@ fn brush_group_context_menu(ui: &mut egui::Ui, st: &mut PresetUi, panel: &str, g
     }
 }
 
-fn brush_folder_context_menu(
-    ui: &mut egui::Ui,
-    st: &mut PresetUi,
-    panel: &str,
-    group: &GroupView,
-    folder: &[String],
-    actions: &mut Vec<BrowserAction>,
-) {
-    match draw_group_context_menu(ui, tl!("Rename Folder…"), tl!("Delete Folder")) {
+fn brush_folder_context_menu(ui: &mut egui::Ui, st: &mut PresetUi, panel: &str, group: &GroupView, folder: &[String], actions: &mut Vec<BrowserAction>) {
+    match draw_group_context_menu(ui, tl!("Rename"), tl!("Delete")) {
         Some(ContextMenuAction::Rename) => {
             st.renaming = None;
             st.folder_renaming = Some(FolderRenameState {
@@ -432,23 +427,29 @@ fn paint_brush_list_row(ui: &egui::Ui, rect: egui::Rect, preset: &BrushPreset, s
     let cell = egui::Rect::from_min_size(rect.left_top() + vec2(22.0, 2.0), vec2(36.0, 30.0));
     let tip_rect = egui::Rect::from_center_size(cell.center(), vec2(30.0, 30.0) * crate::brush_sections::thumb_scale(brush.size));
     ui.painter().image(tip.id(), tip_rect, full_uv(), Color32::WHITE);
-    ui.painter().text(pos2(cell.center().x, rect.bottom() - 1.0), egui::Align2::CENTER_BOTTOM, format!("{}", brush.size.round() as i64), egui::FontId::proportional(9.0), t.text_faint);
+    ui.painter().text(
+        pos2(cell.center().x, rect.bottom() - 1.0),
+        egui::Align2::CENTER_BOTTOM,
+        format!("{}", brush.size.round() as i64),
+        egui::FontId::proportional(9.0),
+        t.text_faint,
+    );
     let width = (rect.width() - (cell.right() - rect.left()) - STROKE_NAME_ROOM).clamp(60.0, 170.0).round();
     let stroke = brush_preview::stroke_texture(ui.ctx(), &format!("brushes-stroke-{width}:{identity}"), brush, width as u32, 36, t.text);
     let stroke_rect = egui::Rect::from_min_size(pos2(cell.right() + 8.0, rect.top() + 4.0), vec2(width, 36.0));
     ui.painter().image(stroke.id(), stroke_rect, full_uv(), Color32::WHITE);
-    crate::layer_row_ui::label(ui.painter(), stroke_rect.right() + 12.0, rect.center().y, rect.right() - 4.0, &preset.name, egui::FontId::proportional(12.0), t.text_dim);
+    crate::layer_row_ui::label(
+        ui.painter(),
+        stroke_rect.right() + 12.0,
+        rect.center().y,
+        rect.right() - 4.0,
+        &preset.name,
+        egui::FontId::proportional(12.0),
+        t.text_dim,
+    );
 }
 
-fn paint_picker_card(
-    ui: &egui::Ui,
-    rect: egui::Rect,
-    preset: &BrushPreset,
-    selected: bool,
-    hovered: bool,
-    show: (bool, bool, bool),
-    scale: f32,
-) {
+fn paint_picker_card(ui: &egui::Ui, rect: egui::Rect, preset: &BrushPreset, selected: bool, hovered: bool, show: (bool, bool, bool), scale: f32) {
     let (show_name, show_stroke, show_tip) = show;
     let tip_only = tip_only(show);
     let name_in_top = tip_and_name(show);
@@ -466,11 +467,15 @@ fn paint_picker_card(
     let pad = CARD_PAD * scale;
     let pad_y = CARD_PAD * scale_h;
     let name_h = if show_name && !name_in_top { CARD_NAME_H * scale_h } else { 0.0 };
-    let top_h = if tip_only { (CARD_TIP_ONLY_H - CARD_PAD * 2.0) * scale_h } else if name_in_top {
+    let top_h = if tip_only {
+        (CARD_TIP_ONLY_H - CARD_PAD * 2.0) * scale_h
+    } else if name_in_top {
         (CARD_TIP_NAME_H - CARD_PAD * 2.0) * scale_h
     } else if show_tip || show_stroke {
         (CARD_MAX_H - CARD_PAD * 2.0 - CARD_NAME_H) * scale_h
-    } else { 0.0 };
+    } else {
+        0.0
+    };
     let inner = card.shrink2(vec2(pad, pad_y));
     let top = egui::Rect::from_min_size(inner.left_top(), vec2(inner.width(), top_h));
     let mut x = top.left();
@@ -479,8 +484,10 @@ fn paint_picker_card(
     if show_tip {
         let tip_w = if tip_only { top.width() } else { (CARD_TIP_W * scale).min(top.width() * 0.5) };
         let cell = egui::Rect::from_min_size(top.left_top(), vec2(tip_w, top_h));
-        let tip = brush_preview::tip_texture(ui.ctx(), &format!("brushes-tip:{identity}"), &brush.tip, (brush.hardness, brush.angle, brush.roundness), 36, t.text);
-        let number = (!compact).then(|| ui.painter().layout_no_wrap(format!("{}", brush.size.round() as i64), egui::FontId::proportional(CARD_NUM_FONT), t.text_faint));
+        let tip =
+            brush_preview::tip_texture(ui.ctx(), &format!("brushes-tip:{identity}"), &brush.tip, (brush.hardness, brush.angle, brush.roundness), 36, t.text);
+        let number =
+            (!compact).then(|| ui.painter().layout_no_wrap(format!("{}", brush.size.round() as i64), egui::FontId::proportional(CARD_NUM_FONT), t.text_faint));
         let tip_rect = card_tip_rect(cell, number.as_ref().map(|g| g.size().y), brush.size, scale);
         ui.painter().image(tip.id(), tip_rect, full_uv(), Color32::WHITE);
         if let Some(galley) = number {
@@ -497,12 +504,28 @@ fn paint_picker_card(
             let stroke_rect = egui::Rect::from_min_size(pos2(cell.left() + 8.0 * scale, cell.center().y - 18.0 * scale_h), vec2(width, 36.0 * scale_h));
             ui.painter().image(stroke.id(), stroke_rect, full_uv(), Color32::WHITE);
         } else {
-            crate::layer_row_ui::label(ui.painter(), cell.left() + 8.0 * scale, cell.center().y, cell.right() - 6.0 * scale, &preset.name, egui::FontId::proportional(CARD_NAME_FONT), t.text_dim);
+            crate::layer_row_ui::label(
+                ui.painter(),
+                cell.left() + 8.0 * scale,
+                cell.center().y,
+                cell.right() - 6.0 * scale,
+                &preset.name,
+                egui::FontId::proportional(CARD_NAME_FONT),
+                t.text_dim,
+            );
         }
     }
     if name_h > 0.0 {
         let name_rect = egui::Rect::from_min_size(pos2(inner.left(), top.bottom()), vec2(inner.width(), name_h));
-        crate::layer_row_ui::label(ui.painter(), name_rect.left() + 6.0 * scale, name_rect.center().y, name_rect.right() - 6.0 * scale, &preset.name, egui::FontId::proportional(CARD_NAME_FONT), t.text_dim);
+        crate::layer_row_ui::label(
+            ui.painter(),
+            name_rect.left() + 6.0 * scale,
+            name_rect.center().y,
+            name_rect.right() - 6.0 * scale,
+            &preset.name,
+            egui::FontId::proportional(CARD_NAME_FONT),
+            t.text_dim,
+        );
     }
 }
 
@@ -538,7 +561,11 @@ fn occurrence_name(presets: &[BrushPreset], key: &str) -> Option<String> {
 /// group).
 pub fn folder_view_key(label: &str, folder: &[String]) -> String {
     let label = crate::picker_state::escape_hierarchy_key_part(label);
-    if folder.is_empty() { label } else { format!("{label}/{}", folder.iter().map(|part| crate::picker_state::escape_hierarchy_key_part(part)).collect::<Vec<_>>().join("/")) }
+    if folder.is_empty() {
+        label
+    } else {
+        format!("{label}/{}", folder.iter().map(|part| crate::picker_state::escape_hierarchy_key_part(part)).collect::<Vec<_>>().join("/"))
+    }
 }
 
 /// Keep collapse state attached to a group or folder when its display path is renamed.
@@ -633,9 +660,7 @@ pub fn apply(app: &mut PhotocraftApp, acts: Vec<Action>) {
             Action::Select(name) => set_current_preset(app, &name),
             Action::Choose(name) => {
                 // The double-click's first click already picked it.
-                if is_ambiguous_preset_name(&app.session.tools.presets, &name)
-                    || app.session.tools.current_preset.as_deref() != Some(name.as_str())
-                {
+                if is_ambiguous_preset_name(&app.session.tools.presets, &name) || app.session.tools.current_preset.as_deref() != Some(name.as_str()) {
                     set_current_preset(app, &name);
                 }
             }
@@ -760,9 +785,7 @@ fn preset_interactions(ui: &egui::Ui, resp: &egui::Response, r: egui::Rect, p: &
         let source = preset_by_identity(presets, &n);
         let target = preset_by_identity(presets, &identity);
         match (source, target) {
-            (Some(source), Some(target))
-                if is_ambiguous_preset_name(presets, &source.name) || is_ambiguous_preset_name(presets, &target.name) =>
-            {
+            (Some(source), Some(target)) if is_ambiguous_preset_name(presets, &source.name) || is_ambiguous_preset_name(presets, &target.name) => {
                 acts.push(Action::Status(format!("Cannot reorder brushes because `{}` or `{}` has a duplicate name.", source.name, target.name)));
             }
             (Some(source), Some(target)) => {
@@ -779,14 +802,12 @@ fn preset_interactions(ui: &egui::Ui, resp: &egui::Response, r: egui::Rect, p: &
     } else if selected {
         acts.push(Action::Select(p.name.clone()));
     }
-    context_menu_target(resp.clone(), |ui| {
-        match draw_item_context_menu(ui, tl!("Rename Brush…"), tl!("Delete Brush"), None) {
-            Some(ContextMenuAction::Rename) => {
-                acts.push(Action::BeginRename(Renaming { group: false, name: p.name.clone(), folder: Vec::new(), text: String::new() }));
-            }
-            Some(ContextMenuAction::Delete) => acts.push(Action::Delete(p.name.clone())),
-            Some(ContextMenuAction::MoveTo(_)) | None => {}
+    context_menu_target(resp.clone(), |ui| match draw_item_context_menu(ui, tl!("Rename Brush…"), tl!("Delete Brush"), None) {
+        Some(ContextMenuAction::Rename) => {
+            acts.push(Action::BeginRename(Renaming { group: false, name: p.name.clone(), folder: Vec::new(), text: String::new() }));
         }
+        Some(ContextMenuAction::Delete) => acts.push(Action::Delete(p.name.clone())),
+        Some(ContextMenuAction::MoveTo(_)) | None => {}
     });
 }
 
@@ -1097,7 +1118,17 @@ pub fn folder_drop(src_group: &str, src_folder: &[String], group: &str, folder: 
 /// folder dragged here lands before it (its upper edge) or goes into it ([`folder_drop`]); a
 /// preset dropped here moves to the end of the group or folder. `key` is the group key, `folder` the nested folder's path (empty for the
 /// group), `label` the group's panel label.
-fn group_header(ui: &mut egui::Ui, label: &str, key: &str, presets: &[BrushPreset], folder: &[String], open: bool, count: usize, acts: &mut Vec<Action>) {
+struct GroupHeader<'a> {
+    label: &'a str,
+    key: &'a str,
+    presets: &'a [BrushPreset],
+    folder: &'a [String],
+    open: bool,
+    count: usize,
+}
+
+fn group_header(ui: &mut egui::Ui, header: GroupHeader<'_>, acts: &mut Vec<Action>) {
+    let GroupHeader { label, key, presets, folder, open, count } = header;
     let shown = folder.last().map_or(label, String::as_str);
     let (r, resp) = asset_browser_header(ui, shown, open, folder.len(), Some(count), 24.0);
     let released = asset_browser_header_target(ui, &resp, r, "brushes", key, folder, true, true);
@@ -1125,14 +1156,12 @@ fn group_header(ui: &mut egui::Ui, label: &str, key: &str, presets: &[BrushPrese
     if resp.clicked() {
         acts.push(Action::ToggleGroup(folder_view_key(label, folder)));
     }
-    context_menu_target(resp.clone(), |ui| {
-        match draw_group_context_menu(ui, tl!("Rename Group…"), tl!("Delete Group")) {
-            Some(ContextMenuAction::Rename) => {
-                acts.push(Action::BeginRename(Renaming { group: true, name: key.to_string(), folder: folder.to_vec(), text: String::new() }));
-            }
-            Some(ContextMenuAction::Delete) => acts.push(Action::DeleteGroup { group: key.to_string(), folder: folder.to_vec() }),
-            Some(ContextMenuAction::MoveTo(_)) | None => {}
+    context_menu_target(resp.clone(), |ui| match draw_group_context_menu(ui, tl!("Rename Group…"), tl!("Delete Group")) {
+        Some(ContextMenuAction::Rename) => {
+            acts.push(Action::BeginRename(Renaming { group: true, name: key.to_string(), folder: folder.to_vec(), text: String::new() }));
         }
+        Some(ContextMenuAction::Delete) => acts.push(Action::DeleteGroup { group: key.to_string(), folder: folder.to_vec() }),
+        Some(ContextMenuAction::MoveTo(_)) | None => {}
     });
 }
 
@@ -1168,7 +1197,7 @@ fn draw_nodes(ui: &mut egui::Ui, d: &Draw, nodes: &[Node], depth: usize, acts: &
         !d.collapsed.contains(&key)
     };
     let mut draw_folder = |ui: &mut egui::Ui, folder: &FolderNode<'_>, open: bool, _depth: usize| {
-        group_header(ui, d.label, d.key, d.presets, &folder.path, open, folder.count, &mut actions.borrow_mut());
+        group_header(ui, GroupHeader { label: d.label, key: d.key, presets: d.presets, folder: &folder.path, open, count: folder.count }, &mut actions.borrow_mut());
     };
     let mut draw_items = |ui: &mut egui::Ui, items: &[&BrushPreset], depth: usize| {
         draw_item_run(ui, d, items, depth, &mut actions.borrow_mut());
@@ -1321,7 +1350,7 @@ pub fn preset_list(ui: &mut egui::Ui, presets: &[BrushPreset], current: Option<&
             let key = group_key(presets, label);
             // Search expands top-level groups so matching presets remain discoverable.
             let open = !filter.is_empty() || !collapsed.iter().any(|name| name.as_str() == label);
-            group_header(ui, label, &key, presets, &[], open, items.len(), &mut acts);
+            group_header(ui, GroupHeader { label, key: &key, presets, folder: &[], open, count: items.len() }, &mut acts);
             if !open {
                 continue;
             }
@@ -1333,53 +1362,57 @@ pub fn preset_list(ui: &mut egui::Ui, presets: &[BrushPreset], current: Option<&
             ui.label(RichText::new(tl!("No brush presets")).color(Tokens::get(ui.ctx()).text_faint));
         }
     });
-    // The dragged preset or group follows the pointer.
-    if let Some(d) = egui::DragAndDrop::payload::<BrushDrag>(ui.ctx())
-        && matches!(&*d, BrushDrag::Preset { scope, .. } | BrushDrag::Group { scope, .. } | BrushDrag::Folder { scope, .. } if scope.as_str() == "brushes")
-        && let Some(p) = ui.ctx().pointer_interact_pos()
-    {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-        let name = match &*d {
-            BrushDrag::Preset { key, .. } => preset_by_identity(presets, key).map_or_else(|| key.clone(), |preset| preset.name.clone()),
-            BrushDrag::Group { name, .. } => {
-                if name.is_empty() {
-                    UNGROUPED.to_string()
-                } else {
-                    name.clone()
-                }
-            }
-            BrushDrag::Folder { folder, .. } => folder.last().cloned().unwrap_or_default(),
-        };
-        egui::Area::new(egui::Id::new(("brush-drag-label", layout.id))).order(egui::Order::Tooltip).fixed_pos(p + vec2(12.0, 8.0)).interactable(false).show(
-            ui.ctx(),
-            |ui| {
-                if matches!(&*d, BrushDrag::Preset { scope, .. } if scope.as_str() == "brushes") {
-                    ui.set_opacity(0.8);
-                }
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if let BrushDrag::Preset { scope, key: n } = &*d
-                            && scope.as_str() == "brushes"
-                            && let Some(preset) = preset_by_identity(presets, n)
-                        {
-                            let brush = &preset.brush;
-                            let identity = preview_identity(preset);
-                            let tip = brush_preview::tip_texture(
-                                ui.ctx(),
-                                &format!("brushes-drag-tip:{identity}"),
-                                &brush.tip,
-                                (brush.hardness, brush.angle, brush.roundness),
-                                36,
-                                Tokens::get(ui.ctx()).text,
-                            );
-                            ui.add(egui::Image::new(&tip).fit_to_exact_size(vec2(36.0, 36.0)).alt_text(&preset.name));
-                        }
-                        ui.label(name);
-                    });
-                });
-            },
-        );
-    }
+    paint_brush_drag_ghost(ui, presets, "brushes", egui::Id::new(("brush-drag-label", layout.id)));
     view_actions(st, acts)
 }
 
+/// Show the dragged brush occurrence (including its own tip) or hierarchy label at the pointer.
+/// The scope is different for the shared picker and the Brushes tab, but the occurrence key is the
+/// same opaque identity in both surfaces.
+fn paint_brush_drag_ghost(ui: &egui::Ui, presets: &[BrushPreset], scope: &str, id: egui::Id) {
+    let Some(d) = egui::DragAndDrop::payload::<BrushDrag>(ui.ctx()) else { return };
+    if !matches!(&*d, BrushDrag::Preset { scope: drag_scope, .. } | BrushDrag::Group { scope: drag_scope, .. } | BrushDrag::Folder { scope: drag_scope, .. } if drag_scope.as_str() == scope)
+    {
+        return;
+    }
+    let Some(pointer) = ui.ctx().pointer_interact_pos() else { return };
+    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    let preset = match &*d {
+        BrushDrag::Preset { key, .. } => preset_by_identity(presets, key),
+        _ => None,
+    };
+    let name = match &*d {
+        BrushDrag::Preset { key, .. } => preset.map_or_else(|| key.clone(), |preset| preset.name.clone()),
+        BrushDrag::Group { name, .. } => {
+            if name.is_empty() {
+                UNGROUPED.to_string()
+            } else {
+                name.clone()
+            }
+        }
+        BrushDrag::Folder { folder, .. } => folder.last().cloned().unwrap_or_default(),
+    };
+    egui::Area::new(id).order(egui::Order::Tooltip).fixed_pos(pointer + vec2(12.0, 8.0)).interactable(false).show(ui.ctx(), |ui| {
+        if matches!(&*d, BrushDrag::Preset { .. }) {
+            ui.set_opacity(0.8);
+        }
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if let Some(preset) = preset {
+                    let brush = &preset.brush;
+                    let identity = preview_identity(preset);
+                    let tip = brush_preview::tip_texture(
+                        ui.ctx(),
+                        &format!("brush-drag-tip:{identity}"),
+                        &brush.tip,
+                        (brush.hardness, brush.angle, brush.roundness),
+                        36,
+                        Tokens::get(ui.ctx()).text,
+                    );
+                    ui.add(egui::Image::new(&tip).fit_to_exact_size(vec2(36.0, 36.0)).alt_text(&preset.name));
+                }
+                ui.label(name);
+            });
+        });
+    });
+}

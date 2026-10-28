@@ -861,7 +861,7 @@ fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str) {
                 crate::preset_files_ui::import_gradients_dialog(app);
                 ui.close();
             }
-            if panel == "patterns" && ui.button(tl!("Import .PAT")).clicked() {
+            if panel == "patterns" && ui.button(tl!("Import")).clicked() {
                 crate::preset_files_ui::import_patterns_dialog(app);
                 ui.close();
             }

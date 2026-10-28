@@ -77,9 +77,9 @@ pub(crate) fn import_gradients_dialog(app: &mut PhotocraftApp) {
 pub(crate) fn import_patterns_dialog(app: &mut PhotocraftApp) {
     let result = app.pick_file_bytes_filtered(&["pat"], |app, name, bytes| {
         if ext(&name) != "pat" {
-            return Err(tl!("Choose a pattern file (.pat).").into());
+            return Err("Choose a pattern file (.pat).".into());
         }
-        open(app, &name, &bytes).ok_or_else(|| tl!("Choose a pattern file (.pat).").to_string())??;
+        open(app, &name, &bytes).ok_or_else(|| "Choose a pattern file (.pat).".to_string())??;
         Ok(Value::Null)
     });
     if let Err(error) = result

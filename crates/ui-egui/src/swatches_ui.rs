@@ -15,9 +15,11 @@ use egui::{Color32, CornerRadius, Rect};
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
+use crate::asset_browser::{
+    BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView, standard_group_context_menu, standard_item_context_menu,
+};
 use crate::picker_footer::FooterOptions;
 use crate::picker_shell::{ShellOptions, picker_shell};
-use crate::asset_browser::{BrowserAdapter, BrowserCapabilities, BrowserOptions, BrowserAction, GroupView, ItemView, standard_group_context_menu, standard_item_context_menu};
 use crate::preset_commands::run;
 
 /// The browser's panel key (selection, folder state and thumbnail size live under it).
@@ -77,7 +79,16 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut adapter = BrowserAdapter {
         panel: PANEL,
         groups: &groups,
-        options: BrowserOptions { canvas, flush: true, all_groups_open: true, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+        options: BrowserOptions {
+            canvas,
+            flush: true,
+            center_grid: false,
+            all_groups_open: true,
+            compact_context_menus: false,
+            item_size: None,
+            list_item_height: None,
+            domain_hierarchy_actions: false,
+        },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
@@ -89,21 +100,21 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         },
         paint_list_item: None,
     };
-    let mut menu = |ui: &mut egui::Ui, state: &mut crate::picker_state::PresetUi, panel: &str| {
-        ui.menu_button(tl!("Panel menu"), |ui| {
-            crate::picker_shell::search_toggle(ui, state, panel);
-            ui.separator();
-            panel_menu(app, ui);
-        });
-    };
-    let events =
+    let events = {
+        let mut menu = |ui: &mut egui::Ui, state: &mut crate::picker_state::PresetUi, panel: &str| {
+            ui.menu_button(tl!("Panel menu"), |ui| {
+                crate::picker_shell::search_toggle(ui, state, panel);
+                ui.separator();
+                panel_menu(app, ui);
+            });
+        };
         picker_shell(
             ui,
             &mut st,
             &mut adapter,
             ShellOptions { panel_options: Some(&mut menu), footer: Some(FooterOptions::standard(tl!("Create new swatch"))), ..Default::default() },
-        );
-    drop(menu);
+        )
+    };
     app.ui.presets_ui = st;
     let mods = ui.input(|i| i.modifiers);
     for e in events {
@@ -151,7 +162,7 @@ fn handle(app: &mut PhotocraftApp, e: BrowserAction, background: bool) {
         | BrowserAction::DeleteFolder { .. }
         | BrowserAction::MoveItemToFolder { .. }
         | BrowserAction::MoveGroup { .. }
-        | BrowserAction::MoveInto { .. } => {},
+        | BrowserAction::MoveInto { .. } => {}
         BrowserAction::NewGroup => new_group(app),
         BrowserAction::New => new_swatch(app),
     }
@@ -224,7 +235,7 @@ fn import_dialog(app: &mut PhotocraftApp, replace: bool) -> Result<Value, String
     app.pick_file_bytes_filtered(&["aco", "ase"], move |app, name, bytes| {
         let ext = std::path::Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
         if !matches!(ext.as_str(), "aco" | "ase") {
-            return Err(tl!("Choose a swatch file (.aco or .ase).").into());
+            return Err("Choose a swatch file (.aco or .ase).".into());
         }
         import_bytes(app, &name, &bytes, replace)
     })

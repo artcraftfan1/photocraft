@@ -11,34 +11,41 @@
 use egui::{Align2, Color32, ColorImage, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, TextureHandle, pos2, vec2};
 use serde_json::{Value, json};
 
-pub use crate::asset_browser_hierarchy::{HierarchyFolder, HierarchyNode};
-use crate::asset_browser::{BrowserAdapter, BrowserCapabilities, BrowserOptions, BrowserAction, GroupView, ItemView};
+use crate::PhotocraftApp;
 #[cfg(test)]
 use crate::asset_browser::browser;
-use crate::picker_footer::FooterOptions;
-use crate::picker_shell::{ShellOptions, picker_shell};
-#[cfg(test)]
-use crate::picker_shell::{CustomShellOptions, picker_shell_custom};
-use crate::PhotocraftApp;
-use crate::state::Tool;
-use crate::theme::Tokens;
-use crate::asset_browser::{standard_group_context_menu, standard_item_context_menu};
-use crate::asset_browser_interaction::canvas_drop_rect;
 #[cfg(test)]
 use crate::asset_browser::last_browser_rect;
 #[cfg(test)]
 use crate::asset_browser::last_group_headers;
+use crate::asset_browser::{BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView};
+use crate::asset_browser::{standard_group_context_menu, standard_item_context_menu};
 #[cfg(test)]
 use crate::asset_browser_hierarchy::hierarchy_tree;
+pub use crate::asset_browser_hierarchy::{HierarchyFolder, HierarchyNode};
+use crate::asset_browser_interaction::canvas_drop_rect;
 #[cfg(test)]
-use crate::asset_browser_interaction::{asset_browser_header_payload, header_drop_before, AssetDrag};
+use crate::asset_browser_interaction::{AssetDrag, asset_browser_header_payload, header_drop_before};
+use crate::picker_footer::FooterOptions;
+#[cfg(test)]
+use crate::picker_shell::{CustomShellOptions, picker_shell_custom};
+use crate::picker_shell::{ShellOptions, picker_shell};
+use crate::state::Tool;
+use crate::theme::Tokens;
 
 pub use crate::picker_state::PresetUi;
 use crate::preset_commands::{generic, run};
 use crate::preset_preview::{cached_texture, content_fingerprint};
 
-const PANELS: [&str; 7] =
-    ["window.panel.gradients", "window.panel.patterns", "window.panel.swatches", "window.panel.styles", "window.panel.shapes", "window.panel.toolPresets", "window.panel.cloneSource"];
+const PANELS: [&str; 7] = [
+    "window.panel.gradients",
+    "window.panel.patterns",
+    "window.panel.swatches",
+    "window.panel.styles",
+    "window.panel.shapes",
+    "window.panel.toolPresets",
+    "window.panel.cloneSource",
+];
 
 /// Window-menu ids handled here.
 pub fn handles(id: &str) -> bool {
@@ -161,24 +168,63 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let p = app.ui.presets_ui.clone();
     if p.gradients {
         let mut open = true;
-        crate::analysis_ui::panel_window_open(app, ctx, "gradients-panel", tl!("Gradients"), egui::vec2(-560.0, 80.0), 270.0, &mut open, |app, ui| {
-            gradients_panel(app, ui);
-        });
-        if !open { app.ui.presets_ui.gradients = false; }
+        crate::analysis_ui::panel_window_open(
+            app,
+            ctx,
+            crate::analysis_ui::PanelWindowSpec {
+                id: "gradients-panel",
+                title: tl!("Gradients"),
+                offset: egui::vec2(-560.0, 80.0),
+                width: 270.0,
+            },
+            &mut open,
+            |app, ui| {
+                gradients_panel(app, ui);
+            },
+        );
+        if !open {
+            app.ui.presets_ui.gradients = false;
+        }
     }
     if p.swatches {
         let mut open = true;
-        crate::analysis_ui::panel_window_open(app, ctx, "swatches-panel", tl!("Swatches"), egui::vec2(-280.0, 80.0), 270.0, &mut open, |app, ui| {
-            crate::swatches_ui::panel(app, ui);
-        });
-        if !open { app.ui.presets_ui.swatches = false; }
+        crate::analysis_ui::panel_window_open(
+            app,
+            ctx,
+            crate::analysis_ui::PanelWindowSpec {
+                id: "swatches-panel",
+                title: tl!("Swatches"),
+                offset: egui::vec2(-280.0, 80.0),
+                width: 270.0,
+            },
+            &mut open,
+            |app, ui| {
+                crate::swatches_ui::panel(app, ui);
+            },
+        );
+        if !open {
+            app.ui.presets_ui.swatches = false;
+        }
     }
     if p.patterns {
         let mut open = true;
-        crate::analysis_ui::panel_window_open(app, ctx, "patterns-panel", tl!("Patterns"), egui::vec2(0.0, 80.0), 270.0, &mut open, |app, ui| {
-            patterns_panel(app, ui);
-        });
-        if !open { app.ui.presets_ui.patterns = false; }
+        crate::analysis_ui::panel_window_open(
+            app,
+            ctx,
+            crate::analysis_ui::PanelWindowSpec {
+                id: "patterns-panel",
+                title: tl!("Patterns"),
+                offset: egui::vec2(0.0, 80.0),
+                width: 270.0,
+            },
+            &mut open,
+            |app, ui| {
+                patterns_panel(app, ui);
+            },
+        );
+        if !open {
+            app.ui.presets_ui.patterns = false;
+        }
     }
     if p.styles && float_window(app, ctx, "styles", tl!("Styles"), 250.0, 0.0, styles_panel) {
         app.ui.presets_ui.styles = false;
@@ -216,7 +262,16 @@ pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut adapter = BrowserAdapter {
         panel: "styles",
         groups: &groups,
-        options: BrowserOptions { canvas, flush: false, all_groups_open: false, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+        options: BrowserOptions {
+            canvas,
+            flush: false,
+            center_grid: false,
+            all_groups_open: false,
+            compact_context_menus: false,
+            item_size: None,
+            list_item_height: None,
+            domain_hierarchy_actions: false,
+        },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
@@ -249,7 +304,7 @@ pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 run(app, "style.presets.apply", json!({"preset": k}));
             }
             // Only the brush browser supports nested-folder context actions.
-            BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => {},
+            BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => {}
             _ => {
                 generic(app, "styles", "style.presets", &e, json!({"name": "Style"}));
             }
@@ -275,7 +330,16 @@ pub fn shapes_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut adapter = BrowserAdapter {
         panel: "shapes",
         groups: &groups,
-        options: BrowserOptions { canvas, flush: false, all_groups_open: false, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+        options: BrowserOptions {
+            canvas,
+            flush: false,
+            center_grid: false,
+            all_groups_open: false,
+            compact_context_menus: false,
+            item_size: None,
+            list_item_height: None,
+            domain_hierarchy_actions: false,
+        },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
@@ -317,7 +381,7 @@ pub fn shapes_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 run(app, "shape.presets.place", p);
             }
             // Only the brush browser supports nested-folder context actions.
-            BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => {},
+            BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => {}
             _ => {
                 generic(app, "shapes", "shape.presets", &e, json!({"name": "Shape"}));
             }
@@ -831,7 +895,12 @@ mod tests {
         assert!(st.toggled.contains("gradients/A/B/Inner"));
         assert_ne!(
             format!("brush-picker/{}/{}", crate::picker_state::escape_hierarchy_key_part("A"), crate::picker_state::escape_hierarchy_key_part("B/C")),
-            format!("brush-picker/{}/{}/{}", crate::picker_state::escape_hierarchy_key_part("A"), crate::picker_state::escape_hierarchy_key_part("B"), crate::picker_state::escape_hierarchy_key_part("C")),
+            format!(
+                "brush-picker/{}/{}/{}",
+                crate::picker_state::escape_hierarchy_key_part("A"),
+                crate::picker_state::escape_hierarchy_key_part("B"),
+                crate::picker_state::escape_hierarchy_key_part("C")
+            ),
             "a slash inside one folder component is not a path separator",
         );
 
@@ -898,7 +967,16 @@ mod tests {
         let mut adapter = BrowserAdapter {
             panel: "short-library",
             groups: &groups,
-            options: BrowserOptions { canvas: Rect::NOTHING, flush: false, all_groups_open: false, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+            options: BrowserOptions {
+                canvas: Rect::NOTHING,
+                flush: false,
+                center_grid: false,
+                all_groups_open: false,
+                compact_context_menus: false,
+                item_size: None,
+                list_item_height: None,
+                domain_hierarchy_actions: false,
+            },
             capabilities: BrowserCapabilities::default(),
             item_context_menu: Some(standard_item_context_menu),
             group_context_menu: Some(standard_group_context_menu),
@@ -931,7 +1009,16 @@ mod tests {
         let mut adapter = BrowserAdapter {
             panel: "short-rename",
             groups: &groups,
-            options: BrowserOptions { canvas: Rect::NOTHING, flush: false, all_groups_open: false, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+            options: BrowserOptions {
+                canvas: Rect::NOTHING,
+                flush: false,
+                center_grid: false,
+                all_groups_open: false,
+                compact_context_menus: false,
+                item_size: None,
+                list_item_height: None,
+                domain_hierarchy_actions: false,
+            },
             capabilities: BrowserCapabilities::default(),
             item_context_menu: Some(standard_item_context_menu),
             group_context_menu: Some(standard_group_context_menu),
@@ -1017,7 +1104,16 @@ mod tests {
         let mut adapter = BrowserAdapter {
             panel: "compact-library",
             groups: &groups,
-            options: BrowserOptions { canvas: Rect::NOTHING, flush: false, all_groups_open: false, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+            options: BrowserOptions {
+                canvas: Rect::NOTHING,
+                flush: false,
+                center_grid: false,
+                all_groups_open: false,
+                compact_context_menus: false,
+                item_size: None,
+                list_item_height: None,
+                domain_hierarchy_actions: false,
+            },
             capabilities: BrowserCapabilities { item_drag: false, item_drop: false, group_drag: false, selection: false, activation: false },
             item_context_menu: None,
             group_context_menu: None,
@@ -1183,7 +1279,15 @@ mod tests {
         assert_eq!(h.state().session.journal.last().map(|(id, _)| id.as_str()), Some("pattern.presets.select"));
     }
 
-    fn consumer_item_menu(ui: &mut egui::Ui, _st: &mut PresetUi, _panel: &str, item: &ItemView, _group: &GroupView, _names: &[String], ev: &mut Vec<BrowserAction>) {
+    fn consumer_item_menu(
+        ui: &mut egui::Ui,
+        _st: &mut PresetUi,
+        _panel: &str,
+        item: &ItemView,
+        _group: &GroupView,
+        _names: &[String],
+        ev: &mut Vec<BrowserAction>,
+    ) {
         if ui.button("Consumer item operation").clicked() {
             ev.push(BrowserAction::Delete(item.key.clone()));
             ui.close();
@@ -1206,7 +1310,16 @@ mod tests {
         let mut adapter = BrowserAdapter {
             panel: "consumer-actions",
             groups: &groups,
-            options: BrowserOptions { canvas: Rect::NOTHING, flush: false, all_groups_open: false, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+            options: BrowserOptions {
+                canvas: Rect::NOTHING,
+                flush: false,
+                center_grid: false,
+                all_groups_open: false,
+                compact_context_menus: false,
+                item_size: None,
+                list_item_height: None,
+                domain_hierarchy_actions: false,
+            },
             capabilities: BrowserCapabilities::default(),
             item_context_menu: Some(consumer_item_menu),
             group_context_menu: Some(consumer_group_menu),
