@@ -2,8 +2,8 @@
 
 use serde_json::{Value, json};
 
-use crate::PhotocraftApp;
 use crate::asset_browser::BrowserAction;
+use crate::PhotocraftApp;
 pub(crate) fn run(app: &mut PhotocraftApp, id: &str, p: Value) -> Option<Value> {
     match app.run(id, p) {
         Ok(v) => Some(v),
@@ -91,6 +91,7 @@ pub(crate) fn generic(app: &mut PhotocraftApp, panel: &str, prefix: &str, e: &Br
         | BrowserAction::DeleteFolder { .. }
         | BrowserAction::MoveItemToFolder { .. }
         | BrowserAction::MoveGroup { .. }
-        | BrowserAction::MoveInto { .. } => false,
+        | BrowserAction::MoveInto { .. } => return false,
     }
 }
+

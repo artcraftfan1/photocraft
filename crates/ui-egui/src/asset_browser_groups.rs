@@ -14,7 +14,14 @@ pub(crate) fn group_open(st: &PresetUi, panel: &str, index: usize, name: &str, a
 }
 
 /// Shared collapsible group/folder row. The caller owns toggle state and context actions.
-pub(crate) fn header(ui: &mut egui::Ui, name: &str, open: bool, depth: usize, count: Option<usize>, height: f32) -> (Rect, egui::Response) {
+pub(crate) fn header(
+    ui: &mut egui::Ui,
+    name: &str,
+    open: bool,
+    depth: usize,
+    count: Option<usize>,
+    height: f32,
+) -> (Rect, egui::Response) {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
     paint(ui, rect, open, name, depth, response.hovered() || response.dragged(), count);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, name));

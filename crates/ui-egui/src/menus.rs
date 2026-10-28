@@ -112,7 +112,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     // These Window-menu items open standalone preset windows; direct panel-docking commands still
     // retain their separate meaning for the docked Color-card presentations.
     if crate::preset_panels::handles(id) {
-        return crate::preset_panels::menu(app, id, &params).unwrap_or(Ok(Value::Null));
+        return crate::preset_panels::menu(app, id, &params).unwrap_or_else(|| Ok(Value::Null));
     }
     if let Some(result) = crate::panel_docking::command(app, id, &params) {
         return result;

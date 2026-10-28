@@ -17,15 +17,13 @@ use egui::{RichText, vec2};
 use photocraft_engine::paint::MAX_BRUSH_SIZE;
 use serde_json::json;
 
-use crate::brush_browser::preview_identity;
 use crate::brush_panel::{BrushesView, commit_gesture, run_or_status};
+use crate::brush_browser::preview_identity;
 use crate::brush_preview;
 use crate::picker_shell::{CustomShellOptions, picker_shell_custom};
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons, widgets};
 
-#[cfg(test)]
-pub(crate) use crate::brush_browser::browser_group_views;
 pub use crate::brush_browser::{
     Action, FolderNode, ListLayout, MAX_VIEW_DEPTH, Node, PANEL_LIST, apply, drop_target, folder_drop, folder_tree, folder_view_key, group_key, preset_list,
 };
@@ -34,6 +32,8 @@ pub(crate) use crate::brush_browser::{
     CARD_COMPACT_SCALE, CARD_GAP, CARD_MAX_H, CARD_MAX_W, CARD_MIN_H_SCALE, CARD_NAME_H, CARD_NUM_FONT, CARD_PAD, CARD_TIP_NAME_H, CARD_TIP_NAME_W,
     CARD_TIP_ONLY_H, CARD_TIP_ONLY_W, CARD_TIP_W, GRID_GAP, card_tip_rect, grid_columns, remap_collapsed_prefix, remove_collapsed_prefix,
 };
+#[cfg(test)]
+pub(crate) use crate::brush_browser::browser_group_views;
 
 fn responsive_list_layout(ui: &egui::Ui) -> ListLayout {
     let height = ui.available_height().clamp(180.0, 640.0);

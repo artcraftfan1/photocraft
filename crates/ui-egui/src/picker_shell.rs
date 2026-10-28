@@ -57,7 +57,12 @@ pub(crate) struct CustomShellOptions<'a> {
 }
 
 /// Compose the standard controls, generic browser viewport, and optional standard footer.
-pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut BrowserAdapter<'_>, mut shell: ShellOptions<'_>) -> Vec<BrowserAction> {
+pub(crate) fn picker_shell(
+    ui: &mut egui::Ui,
+    st: &mut PresetUi,
+    adapter: &mut BrowserAdapter<'_>,
+    mut shell: ShellOptions<'_>,
+) -> Vec<BrowserAction> {
     let panel = adapter.panel.to_string();
     shell_controls(ui, &mut shell, st, &panel);
     if matches!(panel.as_str(), "gradients" | "swatches" | "patterns") && st.search_visible.get(&panel).copied().unwrap_or(true) {
@@ -139,3 +144,4 @@ fn shell_controls_custom(ui: &mut egui::Ui, shell: &mut CustomShellOptions<'_>) 
         recents(ui);
     }
 }
+

@@ -9,11 +9,11 @@ use egui::{Align2, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, pos2, vec2};
 
 use crate::asset_browser_groups::group_open;
 use crate::asset_browser_hierarchy::{HierarchyFolder, draw_hierarchy, hierarchy_tree};
+use crate::asset_browser_items::{item_info as asset_browser_item_info, list_row as asset_browser_list_row};
 use crate::asset_browser_interaction::{
-    AssetDrag, ContextMenuAction, HeaderDropCapabilities, HierarchyDrop, asset_browser_header_target, asset_browser_item_gesture, asset_browser_item_target, context_menu_target,
+    AssetDrag, ContextMenuAction, HierarchyDrop, asset_browser_header_target, asset_browser_item_gesture, asset_browser_item_target, context_menu_target,
     draw_group_context_menu, draw_item_context_menu, header_drop_before, hierarchy_folder_drop,
 };
-use crate::asset_browser_items::{item_info as asset_browser_item_info, list_row as asset_browser_list_row};
 use crate::picker_state::PresetUi;
 use crate::picker_state::escape_hierarchy_key_part;
 use crate::theme::Tokens;
@@ -62,7 +62,8 @@ fn group_matches_query(group: &GroupView, query: &str) -> bool {
 }
 
 fn item_matches_query(item: &ItemView, query: &str) -> bool {
-    !query.is_empty() && (item.name.to_lowercase().contains(query) || item.folder.iter().any(|part| part.to_lowercase().contains(query)))
+    !query.is_empty()
+        && (item.name.to_lowercase().contains(query) || item.folder.iter().any(|part| part.to_lowercase().contains(query)))
 }
 
 fn group_visible_for_query(query: &str, group_matches: bool, has_matching_items: bool) -> bool {
@@ -74,10 +75,9 @@ fn item_visible_for_query(item: &ItemView, query: &str, group_matches: bool) -> 
 }
 
 fn item_occurrence_position(groups: &[GroupView], key: &str) -> Option<(usize, usize)> {
-    groups
-        .iter()
-        .enumerate()
-        .find_map(|(group_index, group)| group.items.iter().position(|item| item.key.as_str() == key).map(|item_index| (group_index, item_index)))
+    groups.iter().enumerate().find_map(|(group_index, group)| {
+        group.items.iter().position(|item| item.key.as_str() == key).map(|item_index| (group_index, item_index))
+    })
 }
 
 /// Generic browser interactions; each asset consumer translates these into its own commands.
@@ -140,8 +140,6 @@ pub(crate) struct BrowserOptions {
     pub(crate) canvas: Rect,
     /// Use touching, square-cornered grid cells rather than spaced preset cards.
     pub(crate) flush: bool,
-    /// Centre a partially filled grid row in the available item area.
-    pub(crate) center_grid: bool,
     /// Start every group expanded rather than only the first group.
     pub(crate) all_groups_open: bool,
     /// Use nested menu submenus for context actions inside a parent popup.
@@ -258,7 +256,6 @@ fn compact_context_menu_target(ui: &mut egui::Ui, resp: egui::Response, menu: im
 /// Space between the cells of a preset grid, and the grid's inset from the panel's left edge.
 const GRID_GAP: f32 = 4.0;
 const GRID_INSET: f32 = 8.0;
-type FolderRelease = (AssetDrag, String, Vec<String>, bool);
 
 /// Draw only the reusable library region. It owns groups/items, selection, drag/drop and item/group
 /// context targets, but not the containing panel's optional controls or footer.
@@ -270,8 +267,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
     let panel = adapter.panel;
     let query = st.search.get(panel).map(|query| query.trim().to_lowercase()).unwrap_or_default();
     let groups = adapter.groups;
-    let BrowserOptions { canvas, flush, center_grid, all_groups_open, compact_context_menus, item_size, list_item_height, domain_hierarchy_actions } =
-        adapter.options;
+    let BrowserOptions { canvas, flush, all_groups_open, compact_context_menus, item_size, list_item_height, domain_hierarchy_actions } = adapter.options;
     let capabilities = adapter.capabilities;
     let item_context_menu = adapter.item_context_menu;
     let group_context_menu = adapter.group_context_menu;
@@ -311,7 +307,11 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
         if let Some(ok) = done {
             st.folder_renaming = None;
             if ok && !text.trim().is_empty() {
-                ev.push(BrowserAction::RenameFolder { group: rename.group, folder: rename.folder, text: text.trim().to_string() });
+                ev.push(BrowserAction::RenameFolder {
+                    group: rename.group,
+                    folder: rename.folder,
+                    text: text.trim().to_string(),
+                });
             }
         }
     } else if let Some((p, key, mut text)) = st.renaming.clone().filter(|r| r.0 == panel) {
@@ -354,7 +354,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
     // frame (the insertion line and the drop are resolved once every header is known).
     let mut drag: Option<(usize, Pos2)> = None;
     let mut released: Option<(usize, Pos2)> = None;
-    let mut folder_releases: Vec<FolderRelease> = Vec::new();
+    let mut folder_releases: Vec<(AssetDrag, String, Vec<String>, bool)> = Vec::new();
     let group_names: Vec<String> = groups.iter().map(|g| g.name.clone()).collect();
     let display = st.nested_display_order(panel, &group_names);
     // The browser is the flexible middle region of a picker panel. Keep it at the allocated
@@ -392,15 +392,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                 } else {
                     asset_browser_header(ui, &g.name, open, depth, None, 22.0)
                 };
-                let header_released = asset_browser_header_target(
-                    ui,
-                    &hresp,
-                    hr,
-                    panel,
-                    &g.name,
-                    &[],
-                    HeaderDropCapabilities { item_drop: capabilities.item_drop, group_drag: capabilities.group_drag },
-                );
+                let header_released = asset_browser_header_target(ui, &hresp, hr, panel, &g.name, &[], capabilities.item_drop, capabilities.group_drag);
                 if hresp.clicked() {
                     let k = format!("{panel}/{}", escape_hierarchy_key_part(&g.name));
                     if !st.toggled.remove(&k) {
@@ -461,17 +453,21 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                 // content pass placed every swatch after every group header, so expanding a group
                 // could not reveal its assets in the expected place.
                 if open {
-                    let mut folder_toggles = Vec::new();
-                    {
                     let tree = hierarchy_tree(
-                        g.items.iter().filter(|item| item_visible_for_query(item, &query, group_matches)).map(|item| (item.folder.as_slice(), item)).collect(),
+                        g.items
+                            .iter()
+                            .filter(|item| item_visible_for_query(item, &query, group_matches))
+                            .map(|item| (item.folder.as_slice(), item))
+                            .collect(),
                         crate::asset_browser_hierarchy::MAX_HIERARCHY_DEPTH,
                     );
+                    let mut folder_toggles = Vec::new();
                     let toggled_folders = st.toggled.clone();
-                    let mut is_folder_open = move |folder: &HierarchyFolder<'_, ItemView>| {
-                        let path = folder.path.iter().map(|part| escape_hierarchy_key_part(part)).collect::<Vec<_>>().join("/");
-                        !toggled_folders.contains(&format!("{panel}/{}/{}", escape_hierarchy_key_part(&g.name), path))
-                    };
+                    let mut is_folder_open =
+                        move |folder: &HierarchyFolder<'_, ItemView>| {
+                            let path = folder.path.iter().map(|part| escape_hierarchy_key_part(part)).collect::<Vec<_>>().join("/");
+                            !toggled_folders.contains(&format!("{panel}/{}/{}", escape_hierarchy_key_part(&g.name), path))
+                        };
                     let st_cell = std::cell::RefCell::new(&mut *st);
                     let ev_cell = std::cell::RefCell::new(&mut ev);
                     let mut draw_folder = |ui: &mut egui::Ui, folder: &HierarchyFolder<'_, ItemView>, folder_open: bool, folder_depth: usize| {
@@ -485,17 +481,9 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                             fresp.hovered(),
                             Some(folder.count),
                         );
-                        if let Some(dragged) =
-                            asset_browser_header_target(
-                                ui,
-                                &fresp,
-                                fr,
-                                panel,
-                                &g.name,
-                                &folder.path,
-                                HeaderDropCapabilities { item_drop: capabilities.item_drop, group_drag: capabilities.group_drag },
-                            )
-                        {
+                        if let Some(dragged) = asset_browser_header_target(
+                            ui, &fresp, fr, panel, &g.name, &folder.path, capabilities.item_drop, capabilities.group_drag,
+                        ) {
                             let edge = ui.ctx().pointer_interact_pos().is_some_and(|p| header_drop_before(fr, p));
                             folder_releases.push((dragged, g.name.clone(), folder.path.clone(), edge));
                         }
@@ -505,13 +493,9 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                         }
                         if let Some(menu) = folder_context_menu {
                             if compact_context_menus {
-                                compact_context_menu_target(ui, fresp.clone(), |ui| {
-                                    menu(ui, &mut *st_cell.borrow_mut(), panel, g, &folder.path, &mut *ev_cell.borrow_mut())
-                                });
+                                compact_context_menu_target(ui, fresp.clone(), |ui| menu(ui, &mut **st_cell.borrow_mut(), panel, g, &folder.path, &mut **ev_cell.borrow_mut()));
                             } else {
-                                context_menu_target(fresp.clone(), |ui| {
-                                    menu(ui, &mut *st_cell.borrow_mut(), panel, g, &folder.path, &mut *ev_cell.borrow_mut())
-                                });
+                                context_menu_target(fresp.clone(), |ui| menu(ui, &mut **st_cell.borrow_mut(), panel, g, &folder.path, &mut **ev_cell.borrow_mut()));
                             }
                         }
                     };
@@ -530,13 +514,11 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                             (cell, cols)
                         };
                         let rows = items.len().div_ceil(cols);
-                        let grid_width = cols as f32 * cell.x + cols.saturating_sub(1) as f32 * gap;
-                        let center_offset = if !list && center_grid { ((w - pad - grid_width).max(0.0)) * 0.5 } else { 0.0 };
                         let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (cell.y + gap) + 2.0), Sense::hover());
                         for (run_i, it) in items.iter().enumerate() {
                             let ii = g.items.iter().position(|original| std::ptr::eq(original, *it)).unwrap_or(run_i);
                             let (cx, cy) = ((run_i % cols) as f32, (run_i / cols) as f32);
-                            let r = Rect::from_min_size(area.min + vec2(pad + center_offset + cx * (cell.x + gap), cy * (cell.y + gap)), cell);
+                            let r = Rect::from_min_size(area.min + vec2(pad + cx * (cell.x + gap), cy * (cell.y + gap)), cell);
                             let resp = ui.interact(r, ui.id().with((panel, gi, ii)), Sense::click_and_drag());
                             let is_sel = selected.as_deref() == Some(&it.key);
                             if list {
@@ -570,7 +552,11 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                                     ui.painter().rect_stroke(r, CornerRadius::same(if flush { 0 } else { 2 }), stroke, kind);
                                 }
                             }
-                            let released_drag = if capabilities.item_drag { asset_browser_item_target(ui, &resp, r, panel, &it.key, !list) } else { None };
+                            let released_drag = if capabilities.item_drag {
+                                asset_browser_item_target(ui, &resp, r, panel, &it.key, !list)
+                            } else {
+                                None
+                            };
                             if let Some(AssetDrag::Preset { scope, key }) = released_drag
                                 && scope.as_str() == panel
                                 && key.as_str() != it.key.as_str()
@@ -588,11 +574,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                                     ev_cell.borrow_mut().push(BrowserAction::MoveItem(key, g.name.clone(), Some(index)));
                                 } else {
                                     let before = if after {
-                                        g.items
-                                            .iter()
-                                            .skip(ii + 1)
-                                            .find(|candidate| candidate.folder == it.folder && candidate.key != key)
-                                            .map(|candidate| candidate.key.clone())
+                                        g.items.iter().skip(ii + 1).find(|candidate| candidate.folder == it.folder && candidate.key != key).map(|candidate| candidate.key.clone())
                                     } else {
                                         Some(it.key.clone())
                                     };
@@ -633,19 +615,18 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                             }
                             if let Some(menu) = item_context_menu {
                                 if compact_context_menus {
-                                    compact_context_menu_target(ui, resp.clone(), |ui| {
-                                        menu(ui, &mut *st_cell.borrow_mut(), panel, it, g, &group_names, &mut *ev_cell.borrow_mut())
-                                    });
+                                    compact_context_menu_target(ui, resp.clone(), |ui| menu(ui, &mut **st_cell.borrow_mut(), panel, it, g, &group_names, &mut **ev_cell.borrow_mut()));
                                 } else {
-                                    context_menu_target(resp.clone(), |ui| {
-                                        menu(ui, &mut *st_cell.borrow_mut(), panel, it, g, &group_names, &mut *ev_cell.borrow_mut())
-                                    });
+                                    context_menu_target(resp.clone(), |ui| menu(ui, &mut **st_cell.borrow_mut(), panel, it, g, &group_names, &mut **ev_cell.borrow_mut()));
                                 }
                             }
                         }
                     };
                     draw_hierarchy(ui, &tree, 0, crate::asset_browser_hierarchy::MAX_HIERARCHY_DEPTH, &mut is_folder_open, &mut draw_folder, &mut draw_items);
-                    }
+                    drop(draw_items);
+                    drop(draw_folder);
+                    drop(ev_cell);
+                    drop(st_cell);
                     for (dragged, target_group, target_folder, edge) in folder_releases.drain(..) {
                         match dragged {
                             AssetDrag::Preset { scope, key } if scope == panel => {
@@ -670,6 +651,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                             st.toggled.insert(key);
                         }
                     }
+
                 }
             }
             // Give the same before-vs-into feedback as the Brushes hierarchy while dragging a
@@ -790,9 +772,13 @@ mod filter_tests {
 
     #[test]
     fn occurrence_lookup_distinguishes_items_with_the_same_display_name() {
-        let groups = vec![group("Brushes", vec![item("brush-occurrence-a", "Soft Round", &[]), item("brush-occurrence-b", "Soft Round", &[])])];
+        let groups = vec![group(
+            "Brushes",
+            vec![item("brush-occurrence-a", "Soft Round", &[]), item("brush-occurrence-b", "Soft Round", &[])],
+        )];
 
         assert_eq!(item_occurrence_position(&groups, "brush-occurrence-a"), Some((0, 0)));
         assert_eq!(item_occurrence_position(&groups, "brush-occurrence-b"), Some((0, 1)));
     }
 }
+

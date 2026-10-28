@@ -64,14 +64,10 @@ fn folder_view_keys_escape_slashes_and_percent_signs() {
 #[test]
 fn brush_hierarchy_preserves_the_supported_folder_depth() {
     fn depth(nodes: &[Node<'_>]) -> usize {
-        nodes
-            .iter()
-            .map(|node| match node {
-                Node::Preset(_) => 0,
-                Node::Folder(folder) => 1 + depth(&folder.children),
-            })
-            .max()
-            .unwrap_or(0)
+        nodes.iter().map(|node| match node {
+            Node::Preset(_) => 0,
+            Node::Folder(folder) => 1 + depth(&folder.children),
+        }).max().unwrap_or(0)
     }
 
     let mut presets = photocraft_engine::Session::new().tools.presets;
@@ -83,16 +79,13 @@ fn brush_hierarchy_preserves_the_supported_folder_depth() {
 #[test]
 fn shared_browser_projection_keeps_brush_folder_paths_and_identity() {
     let mut presets = photocraft_engine::Session::new().tools.presets;
-    let (name, identity) = {
-        let preset = presets.first_mut().expect("built-in brush preset");
-        preset.folder = vec!["Imported".into(), "Soft".into()];
-        (preset.name.clone(), crate::brush_browser::preview_identity(preset))
-    };
+    let preset = presets.first_mut().expect("built-in brush preset");
+    preset.folder = vec!["Imported".into(), "Soft".into()];
+    let name = preset.name.clone();
 
     let groups = browser_group_views(&presets);
-    let projected = groups.iter().flat_map(|group| &group.items).find(|item| item.key == identity).expect("projected brush");
-    assert_eq!(projected.key, identity);
-    assert_eq!(projected.name, name);
+    let projected = groups.iter().flat_map(|group| &group.items).find(|item| item.key == name).expect("projected brush");
+    assert_eq!(projected.key, name);
     assert_eq!(projected.folder, vec!["Imported".to_string(), "Soft".to_string()]);
 }
 
@@ -108,8 +101,7 @@ fn dragging_a_brush_shows_its_tip_preview() {
             if mode == 2 {
                 app.ui.brush_picker = Some([300.0, 120.0]);
             }
-            let (name, identity) =
-                app.session.tools.presets.first().map(|preset| (preset.name.clone(), crate::brush_browser::preview_identity(preset))).unwrap();
+            let (name, identity) = app.session.tools.presets.first().map(|preset| (preset.name.clone(), crate::brush_browser::preview_identity(preset))).unwrap();
             let brush = app.session.tools.brush.clone();
             let presets = app.session.tools.presets.clone();
             let mut h = Harness::builder().with_size(vec2(1200.0, 900.0)).build_eframe(move |cc| {
@@ -125,14 +117,10 @@ fn dragging_a_brush_shows_its_tip_preview() {
             let end = start + vec2(50.0, 10.0);
             h.event(egui::Event::PointerMoved(end));
             h.run_steps(4);
-            let current_identity =
-                h.state().session.tools.presets.iter().find(|preset| preset.name == name).map(crate::brush_browser::preview_identity).unwrap();
+            let current_identity = h.state().session.tools.presets.iter().find(|preset| preset.name == name).map(crate::brush_browser::preview_identity).unwrap();
             let payload = egui::DragAndDrop::payload::<BrushDrag>(&h.ctx);
             let expected_scope = if mode == 2 { "brush-picker" } else { "brushes" };
-            assert!(
-                matches!(payload.as_deref(), Some(BrushDrag::Preset { scope, key }) if scope.as_str() == expected_scope && key == &current_identity),
-                "drag key must identify this preset occurrence: {identity} → {current_identity}; payload: {payload:?}"
-            );
+            assert!(matches!(payload.as_deref(), Some(BrushDrag::Preset { scope, key }) if scope.as_str() == expected_scope && key == &current_identity), "drag key must identify this preset occurrence: {identity} → {current_identity}; payload: {payload:?}");
             assert!(h.query_by_role_and_label(Role::Image, &name).is_some(), "dragged brush needs a real tip thumbnail, not only its name");
             let renders = brush_preview::render_count(&h.ctx);
             h.run_steps(2);

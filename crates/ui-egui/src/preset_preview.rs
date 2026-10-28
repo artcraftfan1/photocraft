@@ -99,3 +99,4 @@ mod tests {
         assert_eq!(replacement.id(), replacement_hit.id());
     }
 }
+
