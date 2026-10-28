@@ -110,23 +110,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         },
         paint_list_item: None,
     };
-    let events = {
-        let mut menu = |ui: &mut egui::Ui, state: &mut crate::pickers::picker_state::PresetUi, panel: &str| {
-            ui.menu_button(tl!("Panel menu"), |ui| {
-                if !compact {
-                    crate::pickers::picker_shell::search_toggle(ui, state, panel);
-                }
-                ui.separator();
-                panel_menu(app, ui);
-            });
-        };
-        picker_shell(
-            ui,
-            &mut st,
-            &mut adapter,
-            ShellOptions { panel_options: Some(&mut menu), footer: Some(FooterOptions::standard(tl!("Create new swatch"))), ..Default::default() },
-        )
-    };
+    let events = picker_shell(ui, &mut st, &mut adapter, ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new swatch"))), ..Default::default() });
     if compact {
         if let Some(was_visible) = search_was_visible {
             st.search_visible.insert(PANEL.into(), was_visible);
@@ -325,6 +309,14 @@ pub fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         app.ui.status = e;
         app.ui.status_error = true;
     }
+}
+
+/// Contribute Swatches-specific actions and its shared picker option to the docking header menu.
+pub(crate) fn docked_panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    crate::pickers::picker_shell::search_toggle(ui, &mut app.ui.presets_ui, PANEL);
+    ui.separator();
+    panel_menu(app, ui);
+    ui.separator();
 }
 
 /// The Color Picker's Add to Swatches: the picked colour, in the model the user typed it in

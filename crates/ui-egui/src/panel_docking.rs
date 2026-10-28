@@ -869,21 +869,9 @@ struct PanelContent<'a> {
 
 fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str) {
     match panel {
-        "gradients" | "patterns" | "swatches" => {
-            if panel == "gradients" && ui.button(tl!("Import .GRD")).clicked() {
-                crate::preset_files_ui::import_gradients_dialog(app);
-                ui.close();
-            }
-            if panel == "patterns" && ui.button(tl!("Import")).clicked() {
-                crate::preset_files_ui::import_patterns_dialog(app);
-                ui.close();
-            }
-            ui.separator();
-            if panel == "swatches" {
-                crate::pickers::swatches_ui::panel_menu(app, ui);
-                ui.separator();
-            }
-        }
+        "gradients" => crate::pickers::gradients_browser::panel_menu(app, ui),
+        "patterns" => crate::pickers::pattern_browser::panel_menu(app, ui),
+        "swatches" => crate::pickers::swatches_ui::docked_panel_menu(app, ui),
         "layers" => {
             crate::layer_row_ui::panel_menu(app, ui);
             ui.separator();

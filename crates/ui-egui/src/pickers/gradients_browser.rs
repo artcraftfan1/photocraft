@@ -88,29 +88,7 @@ pub(crate) fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         },
         paint_list_item: None,
     };
-    let events = {
-        let mut menu = |ui: &mut egui::Ui, state: &mut crate::pickers::picker_state::PresetUi, panel: &str| {
-            ui.menu_button(tl!("Panel menu"), |ui| {
-                crate::pickers::picker_shell::search_toggle(ui, state, panel);
-                ui.separator();
-                if ui.button(tl!("Import .GRD")).clicked() {
-                    crate::preset_files_ui::import_gradients_dialog(app);
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button(tl!("Reset")).clicked() {
-                    run(app, "gradient.presets.reset", json!({}));
-                    ui.close();
-                }
-            });
-        };
-        picker_shell(
-            ui,
-            &mut state,
-            &mut adapter,
-            ShellOptions { panel_options: Some(&mut menu), footer: Some(FooterOptions::standard(tl!("Create new gradient"))), ..Default::default() },
-        )
-    };
+    let events = picker_shell(ui, &mut state, &mut adapter, ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new gradient"))), ..Default::default() });
     app.ui.presets_ui = state;
 
     for event in events {
@@ -130,4 +108,19 @@ pub(crate) fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     }
+}
+
+/// Contribute the Gradients-specific actions to the shared docking header menu.
+pub(crate) fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    crate::pickers::picker_shell::search_toggle(ui, &mut app.ui.presets_ui, "gradients");
+    ui.separator();
+    if ui.button(tl!("Import .GRD")).clicked() {
+        crate::preset_files_ui::import_gradients_dialog(app);
+        ui.close();
+    }
+    if ui.button(tl!("Reset")).clicked() {
+        run(app, "gradient.presets.reset", json!({}));
+        ui.close();
+    }
+    ui.separator();
 }

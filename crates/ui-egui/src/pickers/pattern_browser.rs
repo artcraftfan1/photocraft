@@ -144,33 +144,7 @@ pub(crate) fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         },
         paint_list_item: None,
     };
-    let events = {
-        let mut menu = |ui: &mut egui::Ui, state: &mut PresetUi, panel: &str| {
-            ui.menu_button(tl!("Panel menu"), |ui| {
-                crate::pickers::picker_shell::search_toggle(ui, state, panel);
-                ui.separator();
-                if ui.button(tl!("Import")).clicked() {
-                    crate::preset_files_ui::import_patterns_dialog(app);
-                    ui.close();
-                }
-                let can_export = !app.session.patterns.items.is_empty() && !cfg!(target_arch = "wasm32");
-                if ui.add_enabled(can_export, egui::Button::new(tl!("Export…"))).clicked() {
-                    ui.close();
-                    export_patterns_dialog(app);
-                }
-            });
-        };
-        picker_shell(
-            ui,
-            &mut st,
-            &mut adapter,
-            ShellOptions {
-                panel_options: Some(&mut menu),
-                footer: Some(FooterOptions::standard(tl!("Create new pattern from the selection"))),
-                ..Default::default()
-            },
-        )
-    };
+    let events = picker_shell(ui, &mut st, &mut adapter, ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new pattern from the selection"))), ..Default::default() });
     app.ui.presets_ui = st;
     for event in events {
         match &event {
@@ -189,6 +163,22 @@ pub(crate) fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     }
+}
+
+/// Contribute the Patterns-specific actions to the shared docking header menu.
+pub(crate) fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    crate::pickers::picker_shell::search_toggle(ui, &mut app.ui.presets_ui, "patterns");
+    ui.separator();
+    if ui.button(tl!("Import")).clicked() {
+        crate::preset_files_ui::import_patterns_dialog(app);
+        ui.close();
+    }
+    let can_export = !app.session.patterns.items.is_empty() && !cfg!(target_arch = "wasm32");
+    if ui.add_enabled(can_export, egui::Button::new(tl!("Export…"))).clicked() {
+        ui.close();
+        export_patterns_dialog(app);
+    }
+    ui.separator();
 }
 
 /// Export the complete pattern library through the native `.PAT` command and save dialog.
