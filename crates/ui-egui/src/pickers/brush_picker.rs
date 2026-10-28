@@ -303,6 +303,7 @@ pub fn body(
             panel_menu: Some(&mut menu),
             search: if show_search { Some(&mut search) } else { None },
             footer: Some((&mut footer, FOOTER_H)),
+            max_total_height: Some((size.y - controls_h).max(0.0)),
             ..Default::default()
         },
         |ui, allocated_h| {

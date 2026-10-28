@@ -56,6 +56,9 @@ pub(crate) struct CustomShellOptions<'a> {
     pub(crate) recents: Option<UiCallback<'a>>,
     /// Consumer-owned footer renderer plus the height it reserves in the browser viewport.
     pub(crate) footer: Option<CustomFooter<'a>>,
+    /// Total height budget for controls, browser and footer. When set, the shell subtracts its
+    /// measured controls and footer before allocating the browser viewport.
+    pub(crate) max_total_height: Option<f32>,
 }
 
 /// Compose the standard controls, generic browser viewport, and optional standard footer.
@@ -99,9 +102,12 @@ pub(crate) fn picker_shell_custom<R>(
     mut shell: CustomShellOptions<'_>,
     draw_browser: impl FnOnce(&mut egui::Ui, f32) -> R,
 ) -> R {
+    let controls_top = ui.cursor().min.y;
     shell_controls_custom(ui, &mut shell);
+    let controls_h = (ui.cursor().min.y - controls_top).max(0.0);
     let footer_h = shell.footer.as_ref().map_or(0.0, |(_, h)| *h + 4.0);
-    let allocated_h = max_h.min((ui.available_height() - footer_h).max(0.0));
+    let browser_budget = shell.max_total_height.map_or(max_h, |total_h| (total_h - controls_h - footer_h).max(0.0));
+    let allocated_h = browser_budget.min((ui.available_height() - footer_h).max(0.0));
     let result = draw_browser(ui, allocated_h);
     if let Some((footer, _)) = shell.footer {
         ui.add_space(4.0);
