@@ -7,15 +7,15 @@ use std::collections::BTreeSet;
 
 use egui::{Align2, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, pos2, vec2};
 
-use crate::asset_browser_groups::group_open;
-use crate::asset_browser_hierarchy::{HierarchyFolder, draw_hierarchy, hierarchy_tree};
-use crate::asset_browser_interaction::{
+use crate::pickers::asset_browser_groups::group_open;
+use crate::pickers::asset_browser_hierarchy::{HierarchyFolder, draw_hierarchy, hierarchy_tree};
+use crate::pickers::asset_browser_interaction::{
     AssetDrag, ContextMenuAction, HeaderDropCapabilities, HierarchyDrop, asset_browser_header_target_with_capabilities, asset_browser_item_gesture,
     asset_browser_item_target, context_menu_target, draw_group_context_menu, draw_item_context_menu, header_drop_before, hierarchy_folder_drop,
 };
-use crate::asset_browser_items::{item_info as asset_browser_item_info, list_row as asset_browser_list_row};
-use crate::picker_state::PresetUi;
-use crate::picker_state::escape_hierarchy_key_part;
+use crate::pickers::asset_browser_items::{item_info as asset_browser_item_info, list_row as asset_browser_list_row};
+use crate::pickers::picker_state::PresetUi;
+use crate::pickers::picker_state::escape_hierarchy_key_part;
 use crate::theme::Tokens;
 
 pub(crate) const MIN_THUMB: f32 = 20.0;
@@ -128,7 +128,7 @@ fn hierarchy_action(drop: HierarchyDrop) -> BrowserAction {
     }
 }
 
-use crate::asset_browser_groups::{header as asset_browser_header, paint as paint_asset_browser_header};
+use crate::pickers::asset_browser_groups::{header as asset_browser_header, paint as paint_asset_browser_header};
 
 /// Browser-specific layout and presentation, supplied by each asset consumer.
 /// `flush` lays the grid out as Photoshop's Swatches panel: the cells touch, square-cornered and
@@ -470,7 +470,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                                 .filter(|item| item_visible_for_query(item, &query, group_matches))
                                 .map(|item| (item.folder.as_slice(), item))
                                 .collect(),
-                            crate::asset_browser_hierarchy::MAX_HIERARCHY_DEPTH,
+                            crate::pickers::asset_browser_hierarchy::MAX_HIERARCHY_DEPTH,
                         );
                         let toggled_folders = st.toggled.clone();
                         let mut is_folder_open = move |folder: &HierarchyFolder<'_, ItemView>| {
@@ -657,7 +657,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                             ui,
                             &tree,
                             0,
-                            crate::asset_browser_hierarchy::MAX_HIERARCHY_DEPTH,
+                            crate::pickers::asset_browser_hierarchy::MAX_HIERARCHY_DEPTH,
                             &mut is_folder_open,
                             &mut draw_folder,
                             &mut draw_items,

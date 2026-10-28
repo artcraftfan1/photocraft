@@ -21,24 +21,18 @@ pub mod adjust_preview;
 pub mod adjust_ui;
 mod alt_grab;
 pub mod analysis_ui;
+pub mod pickers;
 pub mod anchor_tools;
 pub mod artboard_tool;
 pub mod artboard_ui;
-pub(crate) mod asset_browser;
-pub(crate) mod asset_browser_groups;
-pub mod asset_browser_hierarchy;
-pub(crate) mod asset_browser_interaction;
-pub(crate) mod asset_browser_items;
 pub(crate) mod background_redraw;
 pub mod bidi_text;
 mod blend_keys;
 pub(crate) mod blend_preview;
 pub mod blur_pins;
 mod brand;
-pub(crate) mod brush_browser;
 pub(crate) mod brush_cursor;
 pub mod brush_panel;
-pub mod brush_picker;
 pub mod brush_preset_dialog;
 pub mod brush_preview;
 pub mod brush_resize;
@@ -109,7 +103,6 @@ pub mod gallery_ui;
 pub mod gpu_canvas;
 pub mod gpu_status;
 pub mod gradient_ui;
-pub(crate) mod gradients_browser;
 pub mod guide_layout_ui;
 pub mod guide_select;
 pub mod hold_keys;
@@ -164,22 +157,15 @@ mod panel_docking;
 pub mod panels;
 pub mod parity;
 pub mod patch_preview;
-pub(crate) mod pattern_browser;
 pub(crate) mod pattern_fill_ui;
 pub mod pattern_preview;
 pub mod perspective_crop_ui;
 pub mod perspective_ui;
-pub(crate) mod picker_footer;
-pub(crate) mod picker_shell;
-pub(crate) mod picker_state;
 pub mod pixel_grid;
 pub mod plugin_ui;
 pub mod point_curve;
 pub mod prefs_ui;
-pub(crate) mod preset_commands;
 pub mod preset_files_ui;
-pub mod preset_panels;
-pub(crate) mod preset_preview;
 pub mod press_menu;
 mod pressure_curve_ui;
 pub mod props_layout;
@@ -216,7 +202,6 @@ pub mod stroke_trail;
 pub mod stroke_ui;
 pub mod stylus;
 pub mod swap_arrow;
-pub mod swatches_ui;
 pub mod symmetry_ui;
 mod tab_strip;
 pub mod targa_options_ui;
@@ -2083,7 +2068,7 @@ impl eframe::App for PhotocraftApp {
         });
         panels::properties_window(self, &ctx);
         brush_panel::window(self, &ctx);
-        preset_panels::windows(self, &ctx);
+        pickers::preset_panels::windows(self, &ctx);
         gradient_ui::editor_window(self, &ctx);
         type_panels_ui::windows(self, &ctx);
         analysis_ui::windows(self, &ctx);
@@ -2114,7 +2099,7 @@ impl eframe::App for PhotocraftApp {
         // The Brush Preset picker's view (its gear's card parts and the footer scale) is
         // remembered once the pointer is up. Here, after every panel, rather than in the
         // picker's own code: the control channel can set it while the picker is closed.
-        brush_picker::persist(self, &ctx);
+        pickers::brush_picker::persist(self, &ctx);
         // The tool's brush (settings and tip references) is remembered the same way. Like the
         // picker's view, in the frame loop, so the control channel can set it with the panels
         // closed; the engine's revision counter keeps an unchanged brush free.

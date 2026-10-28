@@ -606,7 +606,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
                 ui.separator();
             }
             if tabs.get(sel) == Some(&"Swatches") {
-                crate::swatches_ui::panel_menu(app, ui);
+                crate::pickers::swatches_ui::panel_menu(app, ui);
                 ui.separator();
             }
             if tabs.get(sel) == Some(&"Brush Settings") {

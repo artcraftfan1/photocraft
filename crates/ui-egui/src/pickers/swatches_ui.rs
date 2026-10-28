@@ -15,12 +15,12 @@ use egui::{Color32, CornerRadius, Rect};
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
-use crate::asset_browser::{
+use crate::pickers::asset_browser::{
     BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView, standard_group_context_menu, standard_item_context_menu,
 };
-use crate::picker_footer::FooterOptions;
-use crate::picker_shell::{ShellOptions, picker_shell};
-use crate::preset_commands::run;
+use crate::pickers::picker_footer::FooterOptions;
+use crate::pickers::picker_shell::{ShellOptions, picker_shell};
+use crate::pickers::preset_commands::run;
 
 /// The browser's panel key (selection, folder state and thumbnail size live under it).
 pub const PANEL: &str = "swatches";
@@ -110,10 +110,10 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         paint_list_item: None,
     };
     let events = {
-        let mut menu = |ui: &mut egui::Ui, state: &mut crate::picker_state::PresetUi, panel: &str| {
+        let mut menu = |ui: &mut egui::Ui, state: &mut crate::pickers::picker_state::PresetUi, panel: &str| {
             ui.menu_button(tl!("Panel menu"), |ui| {
                 if !compact {
-                    crate::picker_shell::search_toggle(ui, state, panel);
+                    crate::pickers::picker_shell::search_toggle(ui, state, panel);
                 }
                 ui.separator();
                 panel_menu(app, ui);
@@ -382,7 +382,7 @@ mod tests {
     /// (such as the search row) do not make tests click the header or search field instead.
     fn first_cell(h: &Harness<'_, PhotocraftApp>) -> egui::Pos2 {
         let origin = h.ctx.input(|i| i.viewport_rect()).min;
-        let header_bottom = crate::asset_browser::last_group_headers(&h.ctx, PANEL).first().map(|(_, rect)| rect.bottom()).unwrap_or(origin.y);
+        let header_bottom = crate::pickers::asset_browser::last_group_headers(&h.ctx, PANEL).first().map(|(_, rect)| rect.bottom()).unwrap_or(origin.y);
         egui::pos2(origin.x + 8.0 + 12.0 + 8.0, header_bottom + 2.0 + DEFAULT_SIZE / 2.0)
     }
 
@@ -544,7 +544,7 @@ mod tests {
         let mut h = Harness::builder().with_size(vec2(300.0, 4000.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel_after_font_setup(ui, app), app);
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
         h.run_steps(2);
-        let headers = crate::asset_browser::last_group_headers(&h.ctx, PANEL);
+        let headers = crate::pickers::asset_browser::last_group_headers(&h.ctx, PANEL);
         assert!(headers.len() >= 2, "the default library has folders: {headers:?}");
         let names: Vec<String> = headers.iter().map(|(n, _)| n.clone()).collect();
         let (first, first_r) = &headers[0];

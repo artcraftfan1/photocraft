@@ -442,7 +442,7 @@ fn texture(
     ui: &mut egui::Ui,
     b: &mut BrushSettings,
     patterns: &[photocraft_doc::Pattern],
-    groups: &[crate::asset_browser::GroupView],
+    groups: &[crate::pickers::asset_browser::GroupView],
     selected_pattern: &str,
     picked_pattern: &mut Option<String>,
 ) {
@@ -464,7 +464,7 @@ fn texture(
                         .max_size(max)
                         .show(ui, |ui| {
                             let browser_h = ui.available_height();
-                            crate::pattern_browser::compact_pattern_browser(ui, patterns, groups, selected_pattern, "brush-texture-patterns", browser_h)
+                            crate::pickers::pattern_browser::compact_pattern_browser(ui, patterns, groups, selected_pattern, "brush-texture-patterns", browser_h)
                         })
                 })
                 .and_then(|r| r.inner)
@@ -624,7 +624,7 @@ pub fn section_body(ui: &mut egui::Ui, b: &mut BrushSettings, i: usize, presets:
 /// Pattern-library inputs used only by the Texture section.
 pub(crate) struct PatternSectionPatterns<'a> {
     pub(crate) patterns: &'a [photocraft_doc::Pattern],
-    pub(crate) groups: &'a [crate::asset_browser::GroupView],
+    pub(crate) groups: &'a [crate::pickers::asset_browser::GroupView],
     pub(crate) selected_pattern: &'a str,
     pub(crate) picked_pattern: &'a mut Option<String>,
 }

@@ -1,9 +1,9 @@
 //! Shared layout for preset pickers, independent of the asset-specific browser and commands.
 
-pub(crate) use crate::asset_browser::MIN_THUMB;
-use crate::asset_browser::{BrowserAction, BrowserAdapter, browser};
-use crate::picker_footer::FooterOptions;
-use crate::picker_state::PresetUi;
+pub(crate) use crate::pickers::asset_browser::MIN_THUMB;
+use crate::pickers::asset_browser::{BrowserAction, BrowserAdapter, browser};
+use crate::pickers::picker_footer::FooterOptions;
+use crate::pickers::picker_state::PresetUi;
 
 const FOOTER_GUESS: f32 = 32.0;
 type UiCallback<'a> = &'a mut dyn FnMut(&mut egui::Ui);
@@ -77,11 +77,11 @@ pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut B
     if let Some(footer) = shell.footer {
         let footer_top = ui.min_rect().bottom();
         ui.add_space(4.0);
-        let footer_actions = crate::picker_footer::draw(ui, st, &panel, footer);
+        let footer_actions = crate::pickers::picker_footer::draw(ui, st, &panel, footer);
         events.extend(footer_actions.into_iter().map(|action| match action {
-            crate::picker_footer::FooterAction::Delete(key) => BrowserAction::Delete(key),
-            crate::picker_footer::FooterAction::New => BrowserAction::New,
-            crate::picker_footer::FooterAction::NewGroup => BrowserAction::NewGroup,
+            crate::pickers::picker_footer::FooterAction::Delete(key) => BrowserAction::Delete(key),
+            crate::pickers::picker_footer::FooterAction::New => BrowserAction::New,
+            crate::pickers::picker_footer::FooterAction::NewGroup => BrowserAction::NewGroup,
         }));
         let measured = ui.min_rect().bottom() - footer_top;
         if measured.is_finite() && (measured - footer_h).abs() > 0.5 {

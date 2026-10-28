@@ -6,13 +6,13 @@ use egui::{Color32, ColorImage, Pos2, Rect, Sense, Stroke, TextureHandle, pos2, 
 use serde_json::json;
 
 use crate::PhotocraftApp;
-use crate::asset_browser::{BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView, browser};
-use crate::asset_browser_interaction::canvas_drop_rect;
-use crate::picker_footer::FooterOptions;
-use crate::picker_shell::{MIN_THUMB, ShellOptions, picker_menu_button, picker_shell};
-use crate::picker_state::PresetUi;
-use crate::preset_commands::{generic, run};
-use crate::preset_preview::{c32, cached_texture, sample_fingerprint};
+use crate::pickers::asset_browser::{BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView, browser};
+use crate::pickers::asset_browser_interaction::canvas_drop_rect;
+use crate::pickers::picker_footer::FooterOptions;
+use crate::pickers::picker_shell::{MIN_THUMB, ShellOptions, picker_menu_button, picker_shell};
+use crate::pickers::picker_state::PresetUi;
+use crate::pickers::preset_commands::{generic, run};
+use crate::pickers::preset_preview::{c32, cached_texture, sample_fingerprint};
 use crate::theme::Tokens;
 
 pub(crate) fn pattern_texture(ctx: &egui::Context, pat: &photocraft_doc::Pattern) -> TextureHandle {
@@ -131,8 +131,8 @@ pub(crate) fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             domain_hierarchy_actions: false,
         },
         capabilities: BrowserCapabilities::default(),
-        item_context_menu: Some(crate::asset_browser::standard_item_context_menu),
-        group_context_menu: Some(crate::asset_browser::standard_group_context_menu),
+        item_context_menu: Some(crate::pickers::asset_browser::standard_item_context_menu),
+        group_context_menu: Some(crate::pickers::asset_browser::standard_group_context_menu),
         folder_context_menu: None,
         paint_group: None,
         paint_item: &mut |ui, r, gi, ii| {
@@ -146,7 +146,7 @@ pub(crate) fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let events = {
         let mut menu = |ui: &mut egui::Ui, state: &mut PresetUi, panel: &str| {
             ui.menu_button(tl!("Panel menu"), |ui| {
-                crate::picker_shell::search_toggle(ui, state, panel);
+                crate::pickers::picker_shell::search_toggle(ui, state, panel);
                 ui.separator();
                 if ui.button(tl!("Import")).clicked() {
                     crate::preset_files_ui::import_patterns_dialog(app);
@@ -276,7 +276,7 @@ pub(crate) fn compact_pattern_browser(
         let mut state = PresetUi::default();
         // Compact pickers replace the old ungrouped swatch grid. Keep every group's items
         // immediately reachable on first open, while allowing users to collapse groups afterward.
-        state.toggled.extend(groups.iter().skip(1).map(|g| format!("{panel}/{}", crate::picker_state::escape_hierarchy_key_part(&g.name))));
+        state.toggled.extend(groups.iter().skip(1).map(|g| format!("{panel}/{}", crate::pickers::picker_state::escape_hierarchy_key_part(&g.name))));
         state
     });
     state.selected.insert(panel.into(), selected.to_string());

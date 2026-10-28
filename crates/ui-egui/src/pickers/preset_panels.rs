@@ -13,29 +13,29 @@ use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
 #[cfg(test)]
-use crate::asset_browser::browser;
+use crate::pickers::asset_browser::browser;
 #[cfg(test)]
-use crate::asset_browser::last_browser_rect;
+use crate::pickers::asset_browser::last_browser_rect;
 #[cfg(test)]
-use crate::asset_browser::last_group_headers;
-use crate::asset_browser::{BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView};
-use crate::asset_browser::{standard_group_context_menu, standard_item_context_menu};
+use crate::pickers::asset_browser::last_group_headers;
+use crate::pickers::asset_browser::{BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView};
+use crate::pickers::asset_browser::{standard_group_context_menu, standard_item_context_menu};
 #[cfg(test)]
-use crate::asset_browser_hierarchy::hierarchy_tree;
-pub use crate::asset_browser_hierarchy::{HierarchyFolder, HierarchyNode};
-use crate::asset_browser_interaction::canvas_drop_rect;
+use crate::pickers::asset_browser_hierarchy::hierarchy_tree;
+pub use crate::pickers::asset_browser_hierarchy::{HierarchyFolder, HierarchyNode};
+use crate::pickers::asset_browser_interaction::canvas_drop_rect;
 #[cfg(test)]
-use crate::asset_browser_interaction::{AssetDrag, asset_browser_header_payload, header_drop_before};
-use crate::picker_footer::FooterOptions;
+use crate::pickers::asset_browser_interaction::{AssetDrag, asset_browser_header_payload, header_drop_before};
+use crate::pickers::picker_footer::FooterOptions;
 #[cfg(test)]
-use crate::picker_shell::{CustomShellOptions, picker_shell_custom};
-use crate::picker_shell::{ShellOptions, picker_shell};
+use crate::pickers::picker_shell::{CustomShellOptions, picker_shell_custom};
+use crate::pickers::picker_shell::{ShellOptions, picker_shell};
 use crate::state::Tool;
 use crate::theme::Tokens;
 
-pub use crate::picker_state::PresetUi;
-use crate::preset_commands::{generic, run};
-use crate::preset_preview::{cached_texture, content_fingerprint};
+pub use crate::pickers::picker_state::PresetUi;
+use crate::pickers::preset_commands::{generic, run};
+use crate::pickers::preset_preview::{cached_texture, content_fingerprint};
 
 const PANELS: [&str; 7] = [
     "window.panel.gradients",
@@ -85,7 +85,7 @@ pub fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
 
 /// Draw a gradient swatch.
 pub fn paint_gradient(ui: &egui::Ui, rect: Rect, stops: &[(f32, [f32; 4])]) {
-    crate::gradients_browser::paint_gradient(ui, rect, stops);
+    crate::pickers::gradients_browser::paint_gradient(ui, rect, stops);
 }
 
 pub(crate) fn style_texture(app: &PhotocraftApp, ctx: &egui::Context, st: &photocraft_engine::presets::styles::StylePreset) -> TextureHandle {
@@ -117,13 +117,13 @@ fn empty(ui: &mut egui::Ui, s: &str) {
 
 /// Draw the standard Patterns panel.
 pub fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    crate::pattern_browser::patterns_panel(app, ui);
+    crate::pickers::pattern_browser::patterns_panel(app, ui);
 }
 
 // ------------------------------------------------------------------ Gradients
 
 pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    crate::gradients_browser::gradients_panel(app, ui);
+    crate::pickers::gradients_browser::gradients_panel(app, ui);
 }
 
 // ------------------------------------------------------------------ floating panels
@@ -189,7 +189,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
             crate::analysis_ui::PanelWindowSpec { id: "swatches-panel", title: tl!("Swatches"), offset: egui::vec2(-280.0, 80.0), width: 270.0 },
             &mut open,
             |app, ui| {
-                crate::swatches_ui::panel(app, ui);
+                crate::pickers::swatches_ui::panel(app, ui);
             },
         );
         if !open {
@@ -722,8 +722,8 @@ pub fn clone_sample_point(app: &PhotocraftApp, at: Option<[f64; 2]>) -> Option<[
 mod tests {
     use super::*;
     use crate::menus::invoke;
-    use crate::pattern_browser::{compact_pattern_browser, pattern_group_views};
-    use crate::picker_state::MAX_GROUP_DEPTH;
+    use crate::pickers::pattern_browser::{compact_pattern_browser, pattern_group_views};
+    use crate::pickers::picker_state::MAX_GROUP_DEPTH;
     use crate::state::ToolOptions;
 
     fn app() -> (PhotocraftApp, egui::Context) {
@@ -870,21 +870,21 @@ mod tests {
 
         // Slash-containing labels are encoded as one component so they cannot collide with a
         // group/folder path; renaming and deleting them must preserve that distinction.
-        let slash_group = format!("gradients/{}", crate::picker_state::escape_hierarchy_key_part("A/B"));
+        let slash_group = format!("gradients/{}", crate::pickers::picker_state::escape_hierarchy_key_part("A/B"));
         st.toggled.insert(format!("{slash_group}/Inner"));
         st.toggled.insert("gradients/A/B/Inner".into());
         st.rename_group("gradients", "A/B", "C/D");
-        assert!(st.toggled.contains(&format!("gradients/{}/Inner", crate::picker_state::escape_hierarchy_key_part("C/D"))));
+        assert!(st.toggled.contains(&format!("gradients/{}/Inner", crate::pickers::picker_state::escape_hierarchy_key_part("C/D"))));
         assert!(st.toggled.contains("gradients/A/B/Inner"), "a nested path with the same legacy spelling is independent");
         st.delete_group("gradients", "C/D");
         assert!(st.toggled.contains("gradients/A/B/Inner"));
         assert_ne!(
-            format!("brush-picker/{}/{}", crate::picker_state::escape_hierarchy_key_part("A"), crate::picker_state::escape_hierarchy_key_part("B/C")),
+            format!("brush-picker/{}/{}", crate::pickers::picker_state::escape_hierarchy_key_part("A"), crate::pickers::picker_state::escape_hierarchy_key_part("B/C")),
             format!(
                 "brush-picker/{}/{}/{}",
-                crate::picker_state::escape_hierarchy_key_part("A"),
-                crate::picker_state::escape_hierarchy_key_part("B"),
-                crate::picker_state::escape_hierarchy_key_part("C")
+                crate::pickers::picker_state::escape_hierarchy_key_part("A"),
+                crate::pickers::picker_state::escape_hierarchy_key_part("B"),
+                crate::pickers::picker_state::escape_hierarchy_key_part("C")
             ),
             "a slash inside one folder component is not a path separator",
         );

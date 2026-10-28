@@ -5,12 +5,12 @@
 
 use egui::{Align2, Rect, Sense, pos2, vec2};
 
-use crate::picker_state::PresetUi;
+use crate::pickers::picker_state::PresetUi;
 use crate::theme::Tokens;
 
 /// Initial expansion policy for a browser group, with explicit user toggles overriding the default.
 pub(crate) fn group_open(st: &PresetUi, panel: &str, index: usize, name: &str, all_groups_open: bool) -> bool {
-    (index == 0 || all_groups_open) != st.toggled.contains(&format!("{panel}/{}", crate::picker_state::escape_hierarchy_key_part(name)))
+    (index == 0 || all_groups_open) != st.toggled.contains(&format!("{panel}/{}", crate::pickers::picker_state::escape_hierarchy_key_part(name)))
 }
 
 /// Shared collapsible group/folder row. The caller owns toggle state and context actions.

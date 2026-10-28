@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
-use crate::asset_browser::BrowserAction;
+use crate::pickers::asset_browser::BrowserAction;
 pub(crate) fn run(app: &mut PhotocraftApp, id: &str, p: Value) -> Option<Value> {
     match app.run(id, p) {
         Ok(v) => Some(v),

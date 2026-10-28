@@ -240,7 +240,7 @@ pub fn load(app: &mut PhotocraftApp) {
         app.ui.status = crate::i18n::fmt(tl!(template), &[("error", &e)]);
     }
     crate::dock::restore(app);
-    crate::brush_picker::restore(app);
+    crate::pickers::brush_picker::restore(app);
     crate::last_brush::restore(app);
     sync_rulers(app);
     crate::tool_memory::restore(app);
@@ -3267,7 +3267,7 @@ mod tests {
         tick(&mut app, &ctx);
         app.ui.brush_picker_list.show_stroke = false;
         app.ui.brush_picker_list.scale = 0.4;
-        crate::brush_picker::persist(&mut app, &ctx);
+        crate::pickers::brush_picker::persist(&mut app, &ctx);
         tick(&mut app, &ctx);
         assert_eq!(stored(&store)["brushPicker"]["showStroke"], json!(false));
         // A restart gets the view back at startup, before the picker is ever opened.
@@ -3282,7 +3282,7 @@ mod tests {
         let bad = json!({"brushPicker": {"showName": false, "showStroke": false, "showTip": false, "scale": 9.0}}).to_string();
         let (mut app3, _) = app_with_saved(Some(bad));
         tick(&mut app3, &ctx);
-        assert_eq!(app3.ui.brush_picker_list.scale, *crate::brush_picker::SCALE_RANGE.end());
+        assert_eq!(app3.ui.brush_picker_list.scale, *crate::pickers::brush_picker::SCALE_RANGE.end());
         assert!(app3.ui.brush_picker_list.show_name && app3.ui.brush_picker_list.show_stroke && app3.ui.brush_picker_list.show_tip);
     }
 

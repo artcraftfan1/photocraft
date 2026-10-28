@@ -111,8 +111,8 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     }
     // These Window-menu items open standalone preset windows; direct panel-docking commands still
     // retain their separate meaning for the docked Color-card presentations.
-    if crate::preset_panels::handles(id) {
-        return crate::preset_panels::menu(app, id, &params).unwrap_or(Ok(Value::Null));
+    if crate::pickers::preset_panels::handles(id) {
+        return crate::pickers::preset_panels::menu(app, id, &params).unwrap_or(Ok(Value::Null));
     }
     if let Some(result) = crate::panel_docking::command(app, id, &params) {
         return result;
@@ -680,7 +680,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     if crate::analysis_ui::handles(id) {
         return true;
     }
-    if crate::preset_panels::handles(id) || crate::type_panels_ui::handles(id) || crate::timeline_ui::handles(id) {
+    if crate::pickers::preset_panels::handles(id) || crate::type_panels_ui::handles(id) || crate::timeline_ui::handles(id) {
         return true;
     }
     if let Some(e) = crate::view_cmds::is_enabled(app, id) {
@@ -770,7 +770,7 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     if let Some(c) = crate::analysis_ui::checked(app, id).or_else(|| crate::workspace_ui::checked(app, id)).or_else(|| crate::file_ui::checked(app, id)) {
         return Some(c);
     }
-    if let Some(c) = crate::preset_panels::checked(app, id) {
+    if let Some(c) = crate::pickers::preset_panels::checked(app, id) {
         return Some(c);
     }
     if let Some(c) = crate::timeline_ui::checked(app, id) {
@@ -897,7 +897,7 @@ pub fn is_live(id: &str) -> bool {
         || crate::view_cmds::handles(id)
         || crate::analysis_ui::handles(id)
         || crate::workspace_ui::handles(id)
-        || crate::preset_panels::handles(id)
+        || crate::pickers::preset_panels::handles(id)
         || crate::type_panels_ui::handles(id)
         || crate::timeline_ui::handles(id)
 }

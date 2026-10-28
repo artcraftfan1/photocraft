@@ -5,17 +5,17 @@ use photocraft_engine::paint::BrushPreset;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::asset_browser::{self, BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView};
-use crate::asset_browser_groups::header as asset_browser_header;
-use crate::asset_browser_hierarchy::{HierarchyFolder, HierarchyNode, draw_hierarchy, hierarchy_tree};
-pub(crate) use crate::asset_browser_interaction::AssetDrag as BrushDrag;
-use crate::asset_browser_interaction::{
+use crate::pickers::asset_browser::{self, BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView};
+use crate::pickers::asset_browser_groups::header as asset_browser_header;
+use crate::pickers::asset_browser_hierarchy::{HierarchyFolder, HierarchyNode, draw_hierarchy, hierarchy_tree};
+pub(crate) use crate::pickers::asset_browser_interaction::AssetDrag as BrushDrag;
+use crate::pickers::asset_browser_interaction::{
     ContextMenuAction, HeaderDropCapabilities, HierarchyDrop, asset_browser_header_target_with_capabilities, asset_browser_item_gesture,
     asset_browser_item_target, context_menu_target, draw_group_context_menu, draw_item_context_menu, header_drop_before, hierarchy_folder_drop,
 };
-use crate::asset_browser_items::{item_info as asset_browser_item_info, list_row as asset_browser_list_row};
+use crate::pickers::asset_browser_items::{item_info as asset_browser_item_info, list_row as asset_browser_list_row};
 use crate::brush_preview;
-use crate::picker_state::{FolderRenameState, PresetUi};
+use crate::pickers::picker_state::{FolderRenameState, PresetUi};
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, widgets};
 
@@ -91,14 +91,14 @@ pub struct BrushesPanelState {
     pub view: BrushesView,
     pub renaming: Option<Renaming>,
     /// The Brush Preset picker's cards: show the preset's name. At least one of the three parts
-    /// is always on, and the picker's cards never go empty (see [`crate::brush_picker`]).
+    /// is always on, and the picker's cards never go empty (see [`crate::pickers::brush_picker`]).
     pub show_name: bool,
     /// The Brush Preset picker's cards: show the stroke preview.
     pub show_stroke: bool,
     /// The Brush Preset picker's cards: show the tip thumbnail.
     pub show_tip: bool,
     /// The Brush Preset picker's cards: their size scale, from the picker's footer slider
-    /// (`crate::brush_picker::body`). 1 is the standard size; the cards' width, height and
+    /// (`crate::pickers::brush_picker::body`). 1 is the standard size; the cards' width, height and
     /// insides multiply by it (`crate::brushes_tab`) — the height down to a 0.50 floor, the
     /// width all the way — the text holds its 1.0 size, and at or below the compact threshold
     /// the tips drop the size number under them and take their cell whole.
@@ -560,11 +560,11 @@ fn occurrence_name(presets: &[BrushPreset], key: &str) -> Option<String> {
 /// The collapse key of a nested folder of the group shown as `label` (`label` itself for the
 /// group).
 pub fn folder_view_key(label: &str, folder: &[String]) -> String {
-    let label = crate::picker_state::escape_hierarchy_key_part(label);
+    let label = crate::pickers::picker_state::escape_hierarchy_key_part(label);
     if folder.is_empty() {
         label
     } else {
-        format!("{label}/{}", folder.iter().map(|part| crate::picker_state::escape_hierarchy_key_part(part)).collect::<Vec<_>>().join("/"))
+        format!("{label}/{}", folder.iter().map(|part| crate::pickers::picker_state::escape_hierarchy_key_part(part)).collect::<Vec<_>>().join("/"))
     }
 }
 
@@ -933,7 +933,7 @@ const CARD_BG_SHADE: f32 = 0.90;
 /// The picker's cards in a list `width` points wide, `indent` past its left edge: how wide each
 /// card is and how many sit in a row. A lone card fills the room up to [`CARD_MAX_W`] × `scale`
 /// (wider lists leave the rest empty); from two columns on, the cards share the room, filling it
-/// fully. `scale` is the picker's footer slider ([`crate::brush_picker::body`]), already floored
+/// fully. `scale` is the picker's footer slider ([`crate::pickers::brush_picker::body`]), already floored
 /// so the widths never reach zero.
 fn card_columns(width: f32, indent: f32, scale: f32) -> (f32, usize) {
     let max_w = CARD_MAX_W * scale;

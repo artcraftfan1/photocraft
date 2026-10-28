@@ -4,14 +4,14 @@ use egui::{Rect, pos2};
 use serde_json::json;
 
 use crate::PhotocraftApp;
-use crate::asset_browser::{
+use crate::pickers::asset_browser::{
     BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView, standard_group_context_menu, standard_item_context_menu,
 };
-use crate::asset_browser_interaction::canvas_drop_rect;
-use crate::picker_footer::FooterOptions;
-use crate::picker_shell::{ShellOptions, picker_shell};
-use crate::preset_commands::{generic, run};
-use crate::preset_preview::c32;
+use crate::pickers::asset_browser_interaction::canvas_drop_rect;
+use crate::pickers::picker_footer::FooterOptions;
+use crate::pickers::picker_shell::{ShellOptions, picker_shell};
+use crate::pickers::preset_commands::{generic, run};
+use crate::pickers::preset_preview::c32;
 
 /// Draw a gradient swatch, showing transparency over the standard checkerboard.
 pub(crate) fn paint_gradient(ui: &egui::Ui, rect: Rect, stops: &[(f32, [f32; 4])]) {
@@ -88,9 +88,9 @@ pub(crate) fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         paint_list_item: None,
     };
     let events = {
-        let mut menu = |ui: &mut egui::Ui, state: &mut crate::picker_state::PresetUi, panel: &str| {
+        let mut menu = |ui: &mut egui::Ui, state: &mut crate::pickers::picker_state::PresetUi, panel: &str| {
             ui.menu_button(tl!("Panel menu"), |ui| {
-                crate::picker_shell::search_toggle(ui, state, panel);
+                crate::pickers::picker_shell::search_toggle(ui, state, panel);
                 ui.separator();
                 if ui.button(tl!("Import .GRD")).clicked() {
                     crate::preset_files_ui::import_gradients_dialog(app);

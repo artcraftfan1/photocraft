@@ -867,7 +867,7 @@ fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str) {
             }
             ui.separator();
             if panel == "swatches" {
-                crate::swatches_ui::panel_menu(app, ui);
+                crate::pickers::swatches_ui::panel_menu(app, ui);
                 ui.separator();
             }
         }
