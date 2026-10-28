@@ -192,18 +192,17 @@ pub fn show_picker(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let before = app.session.tools.brush.clone();
         let mut b = before.clone();
         let list = &mut app.ui.brush_picker_list;
-        let frame = egui::Frame::popup(ui.style())
-            .show(ui, |ui| {
-                crate::brush_picker::body(
-                    ui,
-                    &mut b,
-                    &app.session.tools.presets,
-                    app.session.tools.current_preset.as_deref(),
-                    list,
-                    &mut app.ui.presets_ui,
-                    content,
-                )
-            });
+        let frame = egui::Frame::popup(ui.style()).show(ui, |ui| {
+            crate::brush_picker::body(
+                ui,
+                &mut b,
+                &app.session.tools.presets,
+                app.session.tools.current_preset.as_deref(),
+                list,
+                &mut app.ui.presets_ui,
+                content,
+            )
+        });
         let picks = frame.inner;
         // The corner grip resizes the picker, and the size is remembered across opens.
         if let Some(new) = crate::brush_picker::resize_grip(ui, frame.response.rect, content) {
@@ -462,7 +461,14 @@ mod tests {
     fn picker_rename_enter_and_escape_do_not_close_picker() {
         let mut h = harness(None);
         let c = h.state().last_canvas_rect.center();
-        let (identity, name) = h.state().session.tools.presets.first().map(|preset| (crate::brush_browser::preview_identity(preset), preset.name.clone())).expect("session has brush presets");
+        let (identity, name) = h
+            .state()
+            .session
+            .tools
+            .presets
+            .first()
+            .map(|preset| (crate::brush_browser::preview_identity(preset), preset.name.clone()))
+            .expect("session has brush presets");
         for key in [egui::Key::Enter, egui::Key::Escape] {
             h.state_mut().ui.brush_picker = Some([c.x, c.y]);
             h.state_mut().ui.presets_ui.renaming = Some(("brush-picker".into(), identity.clone(), name.clone()));
@@ -481,7 +487,10 @@ mod tests {
         for key in [egui::Key::Enter, egui::Key::Escape] {
             h.state_mut().ui.brush_picker = Some([c.x, c.y]);
             h.state_mut().ui.presets_ui.folder_renaming = Some(crate::picker_state::FolderRenameState {
-                panel: "brush-picker".into(), group: "Group".into(), folder: vec!["Folder".into()], text: "Folder".into(),
+                panel: "brush-picker".into(),
+                group: "Group".into(),
+                folder: vec!["Folder".into()],
+                text: "Folder".into(),
             });
             h.run_steps(2);
             h.key_press(key);
@@ -496,7 +505,10 @@ mod tests {
         let mut h = harness(None);
         h.state_mut().ui.presets_ui.renaming = Some(("brush-picker".into(), "Default".into(), "Draft".into()));
         h.state_mut().ui.presets_ui.folder_renaming = Some(crate::picker_state::FolderRenameState {
-            panel: "brush-picker".into(), group: "Group".into(), folder: vec!["Nested".into()], text: "Draft".into(),
+            panel: "brush-picker".into(),
+            group: "Group".into(),
+            folder: vec!["Nested".into()],
+            text: "Draft".into(),
         });
         h.state_mut().ui.brush_picker = Some([100.0, 100.0]);
         crate::brush_picker::close(&mut h.state_mut().ui);
@@ -505,7 +517,10 @@ mod tests {
 
         h.state_mut().ui.presets_ui.renaming = Some(("brush-picker".into(), "Default".into(), "Draft".into()));
         h.state_mut().ui.presets_ui.folder_renaming = Some(crate::picker_state::FolderRenameState {
-            panel: "patterns".into(), group: "Group".into(), folder: vec!["Nested".into()], text: "Draft".into(),
+            panel: "patterns".into(),
+            group: "Group".into(),
+            folder: vec!["Nested".into()],
+            text: "Draft".into(),
         });
         h.state_mut().ui.brush_picker = Some([100.0, 100.0]);
 
@@ -588,7 +603,15 @@ mod tests {
         assert!(!h.state().ui.brush_picker_list.show_stroke && !h.state().ui.brush_picker_list.show_tip);
         assert!(h.state().ui.brush_picker.is_some());
         // A rename left open goes with the picker.
-        let identity = h.state().session.tools.presets.iter().find(|preset| preset.name == "Inky").map(crate::brush_browser::preview_identity).expect("the preset was saved above");
+        let identity = h
+            .state()
+            .session
+            .tools
+            .presets
+            .iter()
+            .find(|preset| preset.name == "Inky")
+            .map(crate::brush_browser::preview_identity)
+            .expect("the preset was saved above");
         h.state_mut().ui.presets_ui.renaming = Some(("brush-picker".into(), identity, "Inky draft".into()));
         h.run_steps(2);
         let far = c - vec2(300.0, 200.0);

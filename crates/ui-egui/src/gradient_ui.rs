@@ -644,7 +644,12 @@ pub fn editor_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
             }
         });
     if show_panel {
-        let _ = crate::preset_panels::menu(app, "window.panel.gradients", &Value::Null);
+        if app.ui.docking.is_some() {
+            let _ = crate::panel_docking::command(app, "window.panel.activate", &json!({"panel": "gradients"}));
+        } else {
+            app.ui.dock_tabs.color = 2;
+            crate::dock::reveal(app, crate::dock::Group::Color);
+        }
     }
     if !open {
         app.ui.panels.gradient_editor = false;
@@ -1041,6 +1046,11 @@ mod tests {
         app
     }
 
+    /// Harness construction draws one frame before the app installs its named theme fonts.
+    fn named_theme_fonts_installed(ctx: &egui::Context) -> bool {
+        ctx.fonts(|fonts| fonts.definitions().families.contains_key(&egui::FontFamily::Name("semibold".into())))
+    }
+
     fn mods() -> egui::Modifiers {
         egui::Modifiers::NONE
     }
@@ -1088,6 +1098,9 @@ mod tests {
         let app = app_with_gradient("linear");
         let mut h = Harness::builder().with_size(vec2(440.0, 560.0)).build_ui_state(
             |ui, app: &mut PhotocraftApp| {
+                if !named_theme_fonts_installed(ui.ctx()) {
+                    return;
+                }
                 if preset_swatch(app, ui) {
                     app.ui.panels.gradient_editor = true;
                 }
@@ -1220,7 +1233,16 @@ mod tests {
         app.run("layer.new.layer", json!({})).unwrap();
         app.ui.tool_options.gradient_classic = true;
         app.ui.tool_options.gradient_dither = false;
-        let mut h = Harness::builder().with_size(vec2(420.0, 600.0)).build_ui_state(|ui, app| crate::preset_panels::gradients_panel(app, ui), app);
+        let mut h = Harness::builder().with_size(vec2(420.0, 600.0)).build_ui_state(
+            |ui, app| {
+                if named_theme_fonts_installed(ui.ctx()) {
+                    crate::preset_panels::gradients_panel(app, ui);
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
+        h.run_steps(2);
         h.get_by_label("Foreground to Transparent").click();
         h.run();
         assert_eq!(h.state().session.presets.gradient.name, "Foreground to Transparent");

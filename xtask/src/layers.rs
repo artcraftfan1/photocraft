@@ -64,6 +64,7 @@ pub const TABLE: &[(&str, Class)] = &[
     ("plugins", Class::Layer(4)),
     ("engine", Class::Layer(5)),
     ("ui-egui", Class::Layer(6)),
+    ("craft-ui", Class::Layer(6)),
     ("automation", Class::Layer(6)),
     ("platform", Class::Layer(6)),
     ("testkit", Class::Testkit),
@@ -78,8 +79,9 @@ pub const TABLE: &[(&str, Class)] = &[
 /// Explicit orderings *within* a layer (earlier may be used by later).
 /// The L0 foundation is a small chain: `raster` builds on `color` and
 /// `geom`, which the §3 diagram draws on one line. The GPU backend (`gpu`)
-/// reuses the CPU reference (`compose`) for LUTs and parity tests.
-pub const INTRA_LAYER_ORDER: &[&[&str]] = &[&["geom", "cms", "color", "raster"], &["compose", "gpu"]];
+/// reuses the CPU reference (`compose`) for LUTs and parity tests. The UI
+/// toolkit (`craft-ui`) precedes its egui shell consumer (`ui-egui`).
+pub const INTRA_LAYER_ORDER: &[&[&str]] = &[&["geom", "cms", "color", "raster"], &["compose", "gpu"], &["craft-ui", "ui-egui"]];
 
 fn intra_layer_allowed(from: &str, to: &str) -> bool {
     let (from, to) = (short_name(from), short_name(to));

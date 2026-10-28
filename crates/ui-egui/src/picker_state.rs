@@ -103,8 +103,8 @@ impl PresetUi {
                 out.push(i);
             }
         }
-        for i in 0..names.len() {
-            if !included[i] {
+        for (i, is_included) in included.iter().enumerate() {
+            if !is_included {
                 out.push(i);
             }
         }
@@ -187,15 +187,9 @@ impl PresetUi {
         let renamed: Vec<String> = self
             .toggled
             .iter()
-            .filter_map(|key| {
-                key.strip_prefix(&old_prefix)
-                    .filter(|tail| tail.is_empty() || tail.starts_with('/'))
-                    .map(|tail| format!("{new_prefix}{tail}"))
-            })
+            .filter_map(|key| key.strip_prefix(&old_prefix).filter(|tail| tail.is_empty() || tail.starts_with('/')).map(|tail| format!("{new_prefix}{tail}")))
             .collect();
-        self.toggled.retain(|key| {
-            !key.strip_prefix(&old_prefix).is_some_and(|tail| tail.is_empty() || tail.starts_with('/'))
-        });
+        self.toggled.retain(|key| !key.strip_prefix(&old_prefix).is_some_and(|tail| tail.is_empty() || tail.starts_with('/')));
         self.toggled.extend(renamed);
     }
 
@@ -215,9 +209,7 @@ impl PresetUi {
             }
         }
         let prefix = format!("{panel}/{}", escape_hierarchy_key_part(name));
-        self.toggled.retain(|key| {
-            !key.strip_prefix(&prefix).is_some_and(|tail| tail.is_empty() || tail.starts_with('/'))
-        });
+        self.toggled.retain(|key| !key.strip_prefix(&prefix).is_some_and(|tail| tail.is_empty() || tail.starts_with('/')));
     }
 
     /// Apply the Brushes panel's header-drop convention to asset groups: the upper third inserts
@@ -270,7 +262,9 @@ impl PresetUi {
             let Some(siblings) = children.get(&parent) else { return };
             for &i in siblings {
                 let Some(name) = names.get(i) else { continue };
-                if !seen.insert(name.clone()) { continue; }
+                if !seen.insert(name.clone()) {
+                    continue;
+                }
                 out.push((i, depth));
                 if depth < MAX_GROUP_DEPTH {
                     visit(Some(name), depth + 1, names, children, seen, out);
@@ -288,7 +282,6 @@ impl PresetUi {
         }
         out
     }
-
 }
 
 /// Escape one path component in persisted picker expansion keys. `%` is escaped first so the
@@ -320,16 +313,9 @@ mod tests {
         state.group_order.insert("panel".into(), names.clone());
         state.group_parent.insert(
             "panel".into(),
-            [
-                ("child".into(), "root-a".into()),
-                ("cycle-a".into(), "cycle-b".into()),
-                ("cycle-b".into(), "cycle-a".into()),
-            ]
-            .into_iter()
-            .collect(),
+            [("child".into(), "root-a".into()), ("cycle-a".into(), "cycle-b".into()), ("cycle-b".into(), "cycle-a".into())].into_iter().collect(),
         );
 
         assert_eq!(state.nested_display_order("panel", &names), vec![(0, 0), (2, 0), (1, 1), (3, 0), (4, 0)]);
     }
 }
-

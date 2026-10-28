@@ -6,6 +6,8 @@ use crate::picker_footer::FooterOptions;
 use crate::picker_state::PresetUi;
 
 const FOOTER_GUESS: f32 = 32.0;
+type UiCallback<'a> = &'a mut dyn FnMut(&mut egui::Ui);
+type PanelOptionsCallback<'a> = &'a mut dyn FnMut(&mut egui::Ui, &mut PresetUi, &str);
 
 /// The shared preset-picker menu button. Keep the glyph consistent across asset pickers.
 pub(crate) fn picker_menu_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
@@ -25,44 +27,39 @@ pub(crate) fn search_toggle(ui: &mut egui::Ui, st: &mut PresetUi, panel: &str) {
 #[derive(Default)]
 pub(crate) struct ShellOptions<'a> {
     /// Optional consumer-owned header content above the shared picker controls.
-    pub(crate) header: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
+    pub(crate) header: Option<UiCallback<'a>>,
     /// Optional consumer-owned menu button or settings controls.
-    pub(crate) panel_menu: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
+    pub(crate) panel_menu: Option<UiCallback<'a>>,
     /// Standard-panel menu that can update the panel's persisted search visibility.
-    pub(crate) panel_options: Option<&'a mut dyn FnMut(&mut egui::Ui, &mut PresetUi, &str)>,
+    pub(crate) panel_options: Option<PanelOptionsCallback<'a>>,
     /// Optional search control; the consumer owns its query state and filtering.
-    pub(crate) search: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
+    pub(crate) search: Option<UiCallback<'a>>,
     /// Optional recent-items strip rendered above the browser.
-    pub(crate) recents: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
+    pub(crate) recents: Option<UiCallback<'a>>,
     /// Standard shared footer controls, when the picker needs them.
     pub(crate) footer: Option<FooterOptions<'a>>,
 }
 
-pub(crate) type CustomFooter<'a> = (&'a mut dyn FnMut(&mut egui::Ui), f32);
+pub(crate) type CustomFooter<'a> = (UiCallback<'a>, f32);
 
 /// Controls for a consumer-owned browser renderer. Its footer is a renderer plus an explicit
 /// height reservation; it does not expose standard-browser options that this shell cannot honor.
 #[derive(Default)]
 pub(crate) struct CustomShellOptions<'a> {
     /// Optional consumer-owned header content above the shared picker controls.
-    pub(crate) header: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
+    pub(crate) header: Option<UiCallback<'a>>,
     /// Optional consumer-owned menu button or settings controls.
-    pub(crate) panel_menu: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
+    pub(crate) panel_menu: Option<UiCallback<'a>>,
     /// Optional search control; the consumer owns its query state and filtering.
-    pub(crate) search: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
+    pub(crate) search: Option<UiCallback<'a>>,
     /// Optional recent-items strip rendered above the browser.
-    pub(crate) recents: Option<&'a mut dyn FnMut(&mut egui::Ui)>,
+    pub(crate) recents: Option<UiCallback<'a>>,
     /// Consumer-owned footer renderer plus the height it reserves in the browser viewport.
     pub(crate) footer: Option<CustomFooter<'a>>,
 }
 
 /// Compose the standard controls, generic browser viewport, and optional standard footer.
-pub(crate) fn picker_shell(
-    ui: &mut egui::Ui,
-    st: &mut PresetUi,
-    adapter: &mut BrowserAdapter<'_>,
-    mut shell: ShellOptions<'_>,
-) -> Vec<BrowserAction> {
+pub(crate) fn picker_shell(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut BrowserAdapter<'_>, mut shell: ShellOptions<'_>) -> Vec<BrowserAction> {
     let panel = adapter.panel.to_string();
     shell_controls(ui, &mut shell, st, &panel);
     if matches!(panel.as_str(), "gradients" | "swatches" | "patterns") && st.search_visible.get(&panel).copied().unwrap_or(true) {
@@ -144,4 +141,3 @@ fn shell_controls_custom(ui: &mut egui::Ui, shell: &mut CustomShellOptions<'_>) 
         recents(ui);
     }
 }
-

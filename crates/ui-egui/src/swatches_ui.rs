@@ -15,15 +15,19 @@ use egui::{Color32, CornerRadius, Rect};
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
+use crate::asset_browser::{
+    BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView, standard_group_context_menu, standard_item_context_menu,
+};
 use crate::picker_footer::FooterOptions;
 use crate::picker_shell::{ShellOptions, picker_shell};
-use crate::asset_browser::{BrowserAdapter, BrowserCapabilities, BrowserOptions, BrowserAction, GroupView, ItemView, standard_group_context_menu, standard_item_context_menu};
 use crate::preset_commands::run;
 
 /// The browser's panel key (selection, folder state and thumbnail size live under it).
 pub const PANEL: &str = "swatches";
 /// Default cell size: Photoshop's small swatches.
 const DEFAULT_SIZE: f32 = 22.0;
+type SwatchColorTable = Vec<Vec<Color32>>;
+type SharedSwatchColorTable = Arc<SwatchColorTable>;
 
 fn c32(c: [f32; 3]) -> Color32 {
     let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -31,18 +35,18 @@ fn c32(c: [f32; 3]) -> Color32 {
 }
 
 /// Display colours of every swatch, rebuilt when the library or the working spaces change.
-fn colors(app: &PhotocraftApp, ctx: &egui::Context) -> Arc<Vec<Vec<Color32>>> {
+fn colors(app: &PhotocraftApp, ctx: &egui::Context) -> SharedSwatchColorTable {
     let c = &app.session.color.settings;
     let key = egui::Id::new(("swatch-colors", app.session.presets.rev, &c.working_rgb, &c.working_cmyk, &c.working_gray));
-    if let Some(v) = ctx.data(|d| d.get_temp::<Arc<Vec<Vec<Color32>>>>(key)) {
+    if let Some(v) = ctx.data(|d| d.get_temp::<SharedSwatchColorTable>(key)) {
         return v;
     }
     let conv = photocraft_engine::presets::swatches::SwatchConv::new(&app.session);
-    let v: Arc<Vec<Vec<Color32>>> = Arc::new(app.session.presets.swatches.iter().map(|g| g.items.iter().map(|s| c32(conv.rgb(&s.color))).collect()).collect());
+    let v: SharedSwatchColorTable = Arc::new(app.session.presets.swatches.iter().map(|g| g.items.iter().map(|s| c32(conv.rgb(&s.color))).collect()).collect());
     ctx.data_mut(|d| {
         // Only the newest table is kept.
         if let Some(old) = d.get_temp::<egui::Id>(egui::Id::new("swatch-colors-key")) {
-            d.remove::<Arc<Vec<Vec<Color32>>>>(old);
+            d.remove::<SharedSwatchColorTable>(old);
         }
         d.insert_temp(egui::Id::new("swatch-colors-key"), key);
         d.insert_temp(key, v.clone());
@@ -72,12 +76,28 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut st = std::mem::take(&mut app.ui.presets_ui);
     let table = colors(app, ui.ctx());
     let canvas = app.last_canvas_rect;
+    // In a very short dock, the menu and footer need priority over the optional search row.
+    // Preserve the user's search preference so it returns when the panel is tall enough again.
+    let compact = ui.available_height() < 90.0;
+    let search_was_visible = st.search_visible.get(PANEL).copied();
+    if compact {
+        st.search_visible.insert(PANEL.into(), false);
+    }
     st.sizes.entry(PANEL.to_string()).or_insert(DEFAULT_SIZE);
     // Flat, touching squares, as in Photoshop's Swatches panel (#5103).
     let mut adapter = BrowserAdapter {
         panel: PANEL,
         groups: &groups,
-        options: BrowserOptions { canvas, flush: true, all_groups_open: true, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+        options: BrowserOptions {
+            canvas,
+            flush: true,
+            center_grid: false,
+            all_groups_open: true,
+            compact_context_menus: false,
+            item_size: None,
+            list_item_height: None,
+            domain_hierarchy_actions: false,
+        },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
@@ -89,21 +109,30 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         },
         paint_list_item: None,
     };
-    let mut menu = |ui: &mut egui::Ui, state: &mut crate::picker_state::PresetUi, panel: &str| {
-        ui.menu_button(tl!("Panel menu"), |ui| {
-            crate::picker_shell::search_toggle(ui, state, panel);
-            ui.separator();
-            panel_menu(app, ui);
-        });
-    };
-    let events =
+    let events = {
+        let mut menu = |ui: &mut egui::Ui, state: &mut crate::picker_state::PresetUi, panel: &str| {
+            ui.menu_button(tl!("Panel menu"), |ui| {
+                if !compact {
+                    crate::picker_shell::search_toggle(ui, state, panel);
+                }
+                ui.separator();
+                panel_menu(app, ui);
+            });
+        };
         picker_shell(
             ui,
             &mut st,
             &mut adapter,
             ShellOptions { panel_options: Some(&mut menu), footer: Some(FooterOptions::standard(tl!("Create new swatch"))), ..Default::default() },
-        );
-    drop(menu);
+        )
+    };
+    if compact {
+        if let Some(was_visible) = search_was_visible {
+            st.search_visible.insert(PANEL.into(), was_visible);
+        } else {
+            st.search_visible.remove(PANEL);
+        }
+    }
     app.ui.presets_ui = st;
     let mods = ui.input(|i| i.modifiers);
     for e in events {
@@ -151,7 +180,7 @@ fn handle(app: &mut PhotocraftApp, e: BrowserAction, background: bool) {
         | BrowserAction::DeleteFolder { .. }
         | BrowserAction::MoveItemToFolder { .. }
         | BrowserAction::MoveGroup { .. }
-        | BrowserAction::MoveInto { .. } => {},
+        | BrowserAction::MoveInto { .. } => {}
         BrowserAction::NewGroup => new_group(app),
         BrowserAction::New => new_swatch(app),
     }
@@ -224,7 +253,7 @@ fn import_dialog(app: &mut PhotocraftApp, replace: bool) -> Result<Value, String
     app.pick_file_bytes_filtered(&["aco", "ase"], move |app, name, bytes| {
         let ext = std::path::Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
         if !matches!(ext.as_str(), "aco" | "ase") {
-            return Err(tl!("Choose a swatch file (.aco or .ase).").into());
+            return Err("Choose a swatch file (.aco or .ase).".into());
         }
         import_bytes(app, &name, &bytes, replace)
     })
@@ -349,9 +378,21 @@ mod tests {
         h.run_steps(3);
     }
 
-    /// The first swatch: below the first group header (22 px), after the 8 px grid inset.
+    /// The first swatch, positioned from the rendered group header so optional shell controls
+    /// (such as the search row) do not make tests click the header or search field instead.
     fn first_cell(h: &Harness<'_, PhotocraftApp>) -> egui::Pos2 {
-        h.ctx.input(|i| i.viewport_rect()).min + vec2(8.0 + 12.0 + 8.0, 22.0 + 2.0 + 12.0 + 8.0)
+        let origin = h.ctx.input(|i| i.viewport_rect()).min;
+        let header_bottom = crate::asset_browser::last_group_headers(&h.ctx, PANEL).first().map(|(_, rect)| rect.bottom()).unwrap_or(origin.y);
+        egui::pos2(origin.x + 8.0 + 12.0 + 8.0, header_bottom + 2.0 + DEFAULT_SIZE / 2.0)
+    }
+
+    /// Harness construction renders once before the test installs the app's named theme fonts.
+    /// Skip only that uninitialized frame; subsequent assertions exercise the real panel.
+    fn panel_after_font_setup(ui: &mut egui::Ui, app: &mut PhotocraftApp) {
+        let installed = ui.ctx().fonts(|fonts| fonts.definitions().families.contains_key(&egui::FontFamily::Name("semibold".into())));
+        if installed {
+            panel(app, ui);
+        }
     }
 
     /// #5103: the swatches touch, as in Photoshop's panel. A click just past the first cell's
@@ -360,7 +401,8 @@ mod tests {
     fn swatches_touch_without_a_gap() {
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let second = app.session.presets.swatches.first().and_then(|g| g.items.get(1)).map(|s| s.name.clone()).unwrap();
-        let mut h = Harness::builder().with_size(vec2(300.0, 300.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel(app, ui), app);
+        let mut h = Harness::builder().with_size(vec2(300.0, 300.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel_after_font_setup(ui, app), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
         h.run_steps(2);
         assert_eq!(h.state().ui.presets_ui.selected.get(PANEL), None);
         let p = first_cell(&h);
@@ -388,7 +430,8 @@ mod tests {
         });
         // Recolour with a visible colour: put Red first.
         app.run("swatches.move", json!({"swatch": "Red", "to": "Grays", "position": 0})).unwrap();
-        let mut h = Harness::builder().with_size(vec2(300.0, 300.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel(app, ui), app);
+        let mut h = Harness::builder().with_size(vec2(300.0, 300.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel_after_font_setup(ui, app), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
         h.run_steps(2);
         let p = first_cell(&h);
         click(&mut h, p, Modifiers::NONE);
@@ -409,8 +452,8 @@ mod tests {
         use egui_kittest::kittest::Queryable;
         for h_px in [80.0, 100.0, 120.0, 160.0, 300.0] {
             let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-            let mut h = Harness::builder().with_size(vec2(260.0, h_px)).build_ui_state(|ui, app: &mut PhotocraftApp| panel(app, ui), app);
-            PhotocraftApp::setup_context(&h.ctx, Default::default());
+            let mut h = Harness::builder().with_size(vec2(260.0, h_px)).build_ui_state(|ui, app: &mut PhotocraftApp| panel_after_font_setup(ui, app), app);
+            PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
             h.run_steps(3);
             let bottom = h.ctx.input(|i| i.viewport_rect()).max.y;
             let slider = h.get_by_role(egui::accesskit::Role::Slider).rect().max.y;
@@ -423,7 +466,8 @@ mod tests {
     fn alt_click_sets_the_background_and_selects() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.session.tools.background = [0.0, 0.0, 1.0, 1.0];
-        let mut h = Harness::builder().with_size(vec2(300.0, 300.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel(app, ui), app);
+        let mut h = Harness::builder().with_size(vec2(300.0, 300.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel_after_font_setup(ui, app), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
         h.run_steps(2);
         let p = first_cell(&h);
         click(&mut h, p, Modifiers::ALT);
@@ -497,7 +541,8 @@ mod tests {
     #[test]
     fn dragging_a_group_header_reorders_and_persists() {
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-        let mut h = Harness::builder().with_size(vec2(300.0, 4000.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel(app, ui), app);
+        let mut h = Harness::builder().with_size(vec2(300.0, 4000.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel_after_font_setup(ui, app), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
         h.run_steps(2);
         let headers = crate::asset_browser::last_group_headers(&h.ctx, PANEL);
         assert!(headers.len() >= 2, "the default library has folders: {headers:?}");

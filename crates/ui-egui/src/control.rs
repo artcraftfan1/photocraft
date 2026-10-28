@@ -2244,13 +2244,16 @@ mod tests {
     fn ui_inspect_reports_shared_brush_picker_rename_not_legacy_state() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let ctx = egui::Context::default();
-        let (identity, display_name) = app.session.tools.presets.first().map(|preset| {
-            (crate::brush_browser::preview_identity(preset), preset.name.clone())
-        }).expect("session has brush presets");
+        let (identity, display_name) = app
+            .session
+            .tools
+            .presets
+            .first()
+            .map(|preset| (crate::brush_browser::preview_identity(preset), preset.name.clone()))
+            .expect("session has brush presets");
         app.ui.brush_picker = Some([20.0, 30.0]);
-        app.ui.brush_picker_list.renaming = Some(crate::brush_panel::Renaming {
-            group: false, name: "Legacy stale".into(), folder: Vec::new(), text: "Legacy stale".into(),
-        });
+        app.ui.brush_picker_list.renaming =
+            Some(crate::brush_panel::Renaming { group: false, name: "Legacy stale".into(), folder: Vec::new(), text: "Legacy stale".into() });
         app.ui.presets_ui.renaming = Some(("patterns".into(), "Pattern A".into(), "Pattern B".into()));
         let unrelated = call(&mut app, &ctx, "ui.inspect", json!({}));
         assert!(unrelated["result"]["brushPicker"]["list"]["renaming"].is_null(), "other panel rename must be filtered: {unrelated}");
@@ -2258,7 +2261,10 @@ mod tests {
         app.ui.presets_ui.renaming = Some(("brush-picker".into(), identity, "Draft".into()));
         let picker = call(&mut app, &ctx, "ui.inspect", json!({}));
         assert_eq!(picker["result"]["brushPicker"]["list"]["renaming"]["group"], false, "{picker}");
-        assert_eq!(picker["result"]["brushPicker"]["list"]["renaming"]["name"], display_name, "inspect resolves the occurrence key to its display name: {picker}");
+        assert_eq!(
+            picker["result"]["brushPicker"]["list"]["renaming"]["name"], display_name,
+            "inspect resolves the occurrence key to its display name: {picker}"
+        );
         assert_eq!(picker["result"]["brushPicker"]["list"]["renaming"]["text"], "Draft", "inspect reports actual shared rename state: {picker}");
 
         assert_eq!(call(&mut app, &ctx, "ui.set", json!({"brushPicker": null}))["ok"], true);

@@ -5,15 +5,15 @@ use std::collections::BTreeSet;
 use egui::{Color32, ColorImage, Pos2, Rect, Sense, Stroke, TextureHandle, pos2, vec2};
 use serde_json::json;
 
-use crate::asset_browser::{BrowserAdapter, BrowserCapabilities, BrowserOptions, BrowserAction, GroupView, ItemView, browser};
+use crate::PhotocraftApp;
+use crate::asset_browser::{BrowserAction, BrowserAdapter, BrowserCapabilities, BrowserOptions, GroupView, ItemView, browser};
 use crate::asset_browser_interaction::canvas_drop_rect;
 use crate::picker_footer::FooterOptions;
 use crate::picker_shell::{MIN_THUMB, ShellOptions, picker_menu_button, picker_shell};
 use crate::picker_state::PresetUi;
 use crate::preset_commands::{generic, run};
-use crate::preset_preview::{cached_texture, c32, sample_fingerprint};
+use crate::preset_preview::{c32, cached_texture, sample_fingerprint};
 use crate::theme::Tokens;
-use crate::PhotocraftApp;
 
 pub(crate) fn pattern_texture(ctx: &egui::Context, pat: &photocraft_doc::Pattern) -> TextureHandle {
     let (w, h) = (pat.width.max(1), pat.height.max(1));
@@ -120,7 +120,16 @@ pub(crate) fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut adapter = BrowserAdapter {
         panel: "patterns",
         groups: &groups,
-        options: BrowserOptions { canvas, flush: false, all_groups_open: false, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+        options: BrowserOptions {
+            canvas,
+            flush: false,
+            center_grid: false,
+            all_groups_open: false,
+            compact_context_menus: false,
+            item_size: None,
+            list_item_height: None,
+            domain_hierarchy_actions: false,
+        },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(crate::asset_browser::standard_item_context_menu),
         group_context_menu: Some(crate::asset_browser::standard_group_context_menu),
@@ -134,28 +143,33 @@ pub(crate) fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         },
         paint_list_item: None,
     };
-    let mut menu = |ui: &mut egui::Ui, state: &mut PresetUi, panel: &str| {
-        ui.menu_button(tl!("Panel menu"), |ui| {
-            crate::picker_shell::search_toggle(ui, state, panel);
-            ui.separator();
-            if ui.button(tl!("Import .PAT")).clicked() {
-                crate::preset_files_ui::import_patterns_dialog(app);
-                ui.close();
-            }
-            let can_export = !app.session.patterns.items.is_empty() && !cfg!(target_arch = "wasm32");
-            if ui.add_enabled(can_export, egui::Button::new(tl!("Export .PAT…"))).clicked() {
-                ui.close();
-                export_patterns_dialog(app);
-            }
-        });
+    let events = {
+        let mut menu = |ui: &mut egui::Ui, state: &mut PresetUi, panel: &str| {
+            ui.menu_button(tl!("Panel menu"), |ui| {
+                crate::picker_shell::search_toggle(ui, state, panel);
+                ui.separator();
+                if ui.button(tl!("Import")).clicked() {
+                    crate::preset_files_ui::import_patterns_dialog(app);
+                    ui.close();
+                }
+                let can_export = !app.session.patterns.items.is_empty() && !cfg!(target_arch = "wasm32");
+                if ui.add_enabled(can_export, egui::Button::new(tl!("Export…"))).clicked() {
+                    ui.close();
+                    export_patterns_dialog(app);
+                }
+            });
+        };
+        picker_shell(
+            ui,
+            &mut st,
+            &mut adapter,
+            ShellOptions {
+                panel_options: Some(&mut menu),
+                footer: Some(FooterOptions::standard(tl!("Create new pattern from the selection"))),
+                ..Default::default()
+            },
+        )
     };
-    let events = picker_shell(
-        ui,
-        &mut st,
-        &mut adapter,
-        ShellOptions { panel_options: Some(&mut menu), footer: Some(FooterOptions::standard(tl!("Create new pattern from the selection"))), ..Default::default() },
-    );
-    drop(menu);
     app.ui.presets_ui = st;
     for event in events {
         match &event {
@@ -168,7 +182,7 @@ pub(crate) fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 run(app, "pattern.presets.apply", json!({"pattern": key}));
             }
             // Only the brush browser supports nested-folder context actions.
-            BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => {},
+            BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => {}
             _ => {
                 generic(app, "patterns", "pattern.presets", &event, json!({}));
             }
@@ -201,7 +215,15 @@ fn compact_context_menu_close_later(ui: &egui::Ui, panel: &str) {
     ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new(("compact-pattern-submenu-close", panel)), true));
 }
 
-pub(crate) fn compact_item_context_menu(ui: &mut egui::Ui, st: &mut PresetUi, panel: &str, item: &ItemView, group: &GroupView, group_names: &[String], ev: &mut Vec<BrowserAction>) {
+pub(crate) fn compact_item_context_menu(
+    ui: &mut egui::Ui,
+    st: &mut PresetUi,
+    panel: &str,
+    item: &ItemView,
+    group: &GroupView,
+    group_names: &[String],
+    ev: &mut Vec<BrowserAction>,
+) {
     if ui.button(tl!("Rename…")).clicked() {
         st.renaming = Some((panel.to_string(), item.key.clone(), item.name.clone()));
         compact_context_menu_close_later(ui, panel);
@@ -272,7 +294,16 @@ pub(crate) fn compact_pattern_browser(
     let mut adapter = BrowserAdapter {
         panel,
         groups,
-        options: BrowserOptions { canvas: Rect::NOTHING, flush: false, all_groups_open: false, compact_context_menus: true, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
+        options: BrowserOptions {
+            canvas: Rect::NOTHING,
+            flush: false,
+            center_grid: false,
+            all_groups_open: false,
+            compact_context_menus: true,
+            item_size: None,
+            list_item_height: None,
+            domain_hierarchy_actions: false,
+        },
         // Compact pickers use the same scoped drag contract as full panels. Selection closes the
         // popup; dragging items between groups or reordering/nesting group headers keeps it open.
         capabilities: BrowserCapabilities { item_drag: true, item_drop: true, group_drag: true, selection: true, activation: true },
@@ -308,8 +339,8 @@ pub(crate) fn compact_pattern_browser(
                         }
                         browser_ui.close();
                     }
-            BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => {},
-            action => action_events.push(action),
+                    BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => {}
+                    action => action_events.push(action),
                 }
             }
         });
@@ -387,11 +418,7 @@ pub(crate) fn apply_compact_pattern_actions(app: &mut PhotocraftApp, ctx: &egui:
         // The shared preset command translator clears the panel selection after every delete.
         // Compact consumers keep their own selection key, so deleting an unrelated pattern must
         // not clear the Brush Texture picker's current pattern.
-        let selected_before = match &event {
-            BrowserAction::Delete(_) => app.ui.presets_ui.selected.get(panel).cloned(),
-            BrowserAction::RenameFolder { .. } | BrowserAction::DeleteFolder { .. } => None,
-            _ => None,
-        };
+        let selected_before = if matches!(event, BrowserAction::Delete(_)) { app.ui.presets_ui.selected.get(panel).cloned() } else { None };
         if generic(app, panel, "pattern.presets", &event, json!({})) {
             if let (BrowserAction::Delete(key), Some(selected)) = (&event, selected_before)
                 && selected != *key
@@ -404,10 +431,8 @@ pub(crate) fn apply_compact_pattern_actions(app: &mut PhotocraftApp, ctx: &egui:
                     match &event {
                         BrowserAction::RenameGroup(from, to) => state.rename_group(panel, from, to),
                         BrowserAction::DeleteGroup(name) => state.delete_group(panel, name),
-                        BrowserAction::Delete(key) => {
-                            if state.selected.get(panel) == Some(key) {
-                                state.selected.remove(panel);
-                            }
+                        BrowserAction::Delete(key) if state.selected.get(panel) == Some(key) => {
+                            state.selected.remove(panel);
                         }
                         _ => {}
                     }
@@ -417,4 +442,3 @@ pub(crate) fn apply_compact_pattern_actions(app: &mut PhotocraftApp, ctx: &egui:
         }
     }
 }
-
