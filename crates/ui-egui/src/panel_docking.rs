@@ -931,19 +931,19 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
         28.0
     }
     fn floating_title_height(&self, _panels: &[String], _active: &String) -> f32 {
-        22.0
+        14.0
     }
     fn floating_chrome_move_cursor(&self, _panels: &[String], _active: &String) -> bool {
         false
     }
     fn floating_title_header(&mut self, ui: &mut egui::Ui, _panels: &[String], active: &String) {
         let locked = self.app.session.prefs().workspace_locked;
-        let close_size = egui::vec2(18.0, 22.0);
+        let close_size = egui::vec2(18.0, 14.0);
         ui.spacing_mut().button_padding = egui::vec2(0.0, 0.0);
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
         ui.spacing_mut().interact_size = close_size;
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let response = ui.add_enabled_ui(!locked, |ui| ui.add_sized(close_size, egui::Button::new("×"))).inner;
+            let response = ui.add_enabled_ui(!locked, |ui| ui.add_sized(close_size, egui::Button::new("×").frame(false))).inner;
             let response = response.on_hover_text(tl!("Close Panel"));
             if response.clicked() {
                 self.commands.push(("window.panel.group", json!({"panel":active,"operation":"close"})));

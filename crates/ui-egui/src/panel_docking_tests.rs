@@ -752,15 +752,53 @@ fn floating_picker_drag_id(kind: &str, panel: &str) -> egui::Id {
 }
 
 #[test]
-fn every_preset_picker_uses_the_shared_22_pixel_title_bar_and_close_control() {
+fn every_preset_picker_uses_the_shared_14_pixel_title_bar_and_borderless_close_control() {
     // These pickers used separate egui::Window chrome before migration. Assert each one exposes
     // the shared docking title drag target and its standard close control.
     for panel in PRESET_PICKERS {
         let h = floating_picker_harness(panel);
         let title = h.ctx.read_response(floating_picker_drag_id("move-title", panel)).expect("shared floating title drag target");
-        assert!((title.rect.height() - 22.0).abs() < 0.5, "{panel} uses the shared 22 px title bar: {:?}", title.rect);
+        assert!((title.rect.height() - 14.0).abs() < 0.5, "{panel} uses the shared 14 px title bar: {:?}", title.rect);
         assert!(h.query_all_by_label("×").count() > 0, "{panel} uses the shared title-bar close control");
         assert!(h.ctx.memory(|memory| memory.area_rect(floating_picker_area_id(panel))).is_some(), "{panel} is rendered as a shared floating panel");
+    }
+}
+
+#[test]
+fn every_preset_picker_close_control_stays_compact_and_borderless() {
+    for panel in PRESET_PICKERS {
+        let h = floating_picker_harness(panel);
+        let close = h.query_all_by_label("×").next().unwrap_or_else(|| panic!("{panel} close control should be visible"));
+        let center = close.rect().center();
+        let has_button_frame = h.output().shapes.iter().any(|clipped| match &clipped.shape {
+            egui::Shape::Rect(shape) => {
+                (shape.rect.center() - center).length() < 0.5
+                    && (shape.rect.size() - vec2(18.0, 14.0)).length() < 0.5
+                    && (shape.fill != egui::Color32::TRANSPARENT || shape.stroke.width > 0.0)
+            }
+            _ => false,
+        });
+        assert!(!has_button_frame, "{panel} close control must not paint a button border or background");
+    }
+}
+
+#[test]
+fn every_preset_picker_title_bar_has_square_bottom_corners() {
+    for panel in PRESET_PICKERS {
+        let h = floating_picker_harness(panel);
+        let floating = h.ctx.memory(|memory| memory.area_rect(floating_picker_area_id(panel))).unwrap();
+        let title = h.output().shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::Shape::Rect(shape)
+                if (shape.rect.top() - floating.top()).abs() < 0.5
+                    && (shape.rect.width() - floating.width()).abs() < 0.5
+                    && (shape.rect.height() - 14.0).abs() < 0.5 =>
+            {
+                Some(shape)
+            }
+            _ => None,
+        }).unwrap_or_else(|| panic!("{panel} title bar background should be painted"));
+        assert_eq!(title.corner_radius.sw, 0, "{panel} title bar bottom-left corner must be square");
+        assert_eq!(title.corner_radius.se, 0, "{panel} title bar bottom-right corner must be square");
     }
 }
 
@@ -833,7 +871,7 @@ fn floating_tab_strip_drag_target_covers_the_full_strip_behind_tabs() {
         .ctx
         .read_response(egui::Id::new("photocraft-panel-docking").with(("move-group-background", Some(&"swatches".to_string()))))
         .expect("floating tab-strip drag target");
-    let expected_strip_top = floating.top() + 22.0;
+    let expected_strip_top = floating.top() + 14.0;
     assert!((drag.rect.left() - floating.left()).abs() < 0.5, "drag target should start at the left edge of the tab strip: {:?}", drag.rect);
     assert!((drag.rect.top() - expected_strip_top).abs() < 0.5, "drag target should cover the tab strip: {:?}", drag.rect);
     assert!((drag.rect.right() - (floating.right() - 28.0)).abs() < 0.5, "menu controls must remain outside the drag target: {:?}", drag.rect);
