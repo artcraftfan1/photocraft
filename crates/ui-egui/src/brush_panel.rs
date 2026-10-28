@@ -17,7 +17,6 @@
 use egui::{Color32, CornerRadius, Sense, Stroke, vec2};
 use photocraft_engine::BrushSettings;
 use photocraft_engine::paint;
-use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::brush_preview;
@@ -26,6 +25,8 @@ use crate::{PhotocraftApp, icons, widgets};
 
 pub use crate::brush_preview::{preview_pixels, preview_sig};
 pub use crate::brush_sections::section_body;
+pub use crate::brush_browser::{BrushesPanelState, BrushesView, Renaming, UNGROUPED, grouped_presets};
+pub(crate) use crate::brush_browser::{clear_texture_pattern_selection, full_uv, run_or_status};
 pub use photocraft_engine::brush_cmds::brush_patch;
 
 /// Sections in Photoshop's order. The bool says whether the section has an enable box.
@@ -55,77 +56,6 @@ fn checkbox_only(section: usize) -> bool {
 /// Panel width and the stroke strip's size.
 pub(crate) const WIDTH: f32 = 540.0;
 const STRIP: (u32, u32) = (488, 76);
-
-/// How the Brushes tab lists presets.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum BrushesView {
-    /// Rows: tip, size, stroke preview, name.
-    #[default]
-    List,
-    /// Tip thumbnails with their sizes.
-    Grid,
-}
-
-/// A rename in progress in the Brushes tab (a preset, or a group when `group` is set).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct Renaming {
-    pub group: bool,
-    /// The preset (or group) being renamed.
-    pub name: String,
-    /// With `group`: the nested folder of group `name` being renamed (empty = the group itself).
-    pub folder: Vec<String>,
-    /// The text typed so far.
-    pub text: String,
-}
-
-/// Brushes panel view state (serde, so the control channel can read and drive it).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct BrushesPanelState {
-    /// Collapsed groups and folders: a group's label, or for a nested folder the group's label and
-    /// the folder path joined with `/` ([`crate::brushes_tab::folder_view_key`]).
-    pub collapsed: Vec<String>,
-    /// Case-insensitive name filter.
-    pub filter: String,
-    pub view: BrushesView,
-    pub renaming: Option<Renaming>,
-    /// The Brush Preset picker's cards: show the preset's name. At least one of the three parts
-    /// is always on, and the picker's cards never go empty (see [`crate::brush_picker`]).
-    pub show_name: bool,
-    /// The Brush Preset picker's cards: show the stroke preview.
-    pub show_stroke: bool,
-    /// The Brush Preset picker's cards: show the tip thumbnail.
-    pub show_tip: bool,
-    /// The Brush Preset picker's cards: their size scale, from the picker's footer slider
-    /// (`crate::brush_picker::body`). 1 is the standard size; the cards' width, height and
-    /// insides multiply by it (`crate::brushes_tab`) — the height down to a 0.50 floor, the
-    /// width all the way — the text holds its 1.0 size, and at or below the compact threshold
-    /// the tips drop the size number under them and take their cell whole.
-    pub scale: f32,
-    /// Show the Brush Preset picker's recent-items placeholder strip.
-    pub picker_recents_visible: bool,
-    /// Show the Brush Preset picker's functional search field.
-    pub picker_search_visible: bool,
-}
-
-impl Default for BrushesPanelState {
-    fn default() -> Self {
-        Self {
-            collapsed: Vec::new(),
-            filter: String::new(),
-            view: BrushesView::default(),
-            renaming: None,
-            show_name: true,
-            show_stroke: true,
-            show_tip: true,
-            scale: 1.0,
-            picker_recents_visible: true,
-            picker_search_visible: true,
-        }
-    }
-}
 
 /// The enable flag behind section `i` (None for Brush Tip Shape).
 pub fn section_flag(b: &mut BrushSettings, i: usize) -> Option<&mut bool> {
@@ -216,45 +146,9 @@ pub fn commit_gesture(app: &mut PhotocraftApp, ctx: &egui::Context, before: &Bru
     }
 }
 
-/// Group label for presets saved without a group.
-pub const UNGROUPED: &str = "My Brushes";
-
-/// Preset indices in panel order: groups in order of first appearance.
-pub fn grouped_presets(presets: &[paint::BrushPreset]) -> Vec<(String, Vec<usize>)> {
-    let mut out: Vec<(String, Vec<usize>)> = Vec::new();
-    for (i, p) in presets.iter().enumerate() {
-        let g = if p.group.is_empty() { UNGROUPED } else { p.group.as_str() };
-        match out.iter_mut().find(|(n, _)| n == g) {
-            Some((_, v)) => v.push(i),
-            None => out.push((g.to_string(), vec![i])),
-        }
-    }
-    out
-}
-
 /// A fresh "Brush N" name.
 pub(crate) fn new_preset_name(presets: &[paint::BrushPreset]) -> String {
     (1..).map(|n| format!("Brush {n}")).find(|n| !presets.iter().any(|p| &p.name == n)).unwrap_or_else(|| "Brush".into())
-}
-
-/// Run a brush command, reporting failures in the status bar and returning whether it succeeded.
-pub(crate) fn run_or_status(app: &mut PhotocraftApp, id: &str, p: Value) -> bool {
-    match app.run(id, p) {
-        Ok(_) => true,
-        Err(e) => {
-            app.ui.status = e;
-            false
-        }
-    }
-}
-
-/// Clear the compact Texture picker selection when the active brush changes.
-pub(crate) fn clear_texture_pattern_selection(app: &mut PhotocraftApp) {
-    app.ui.presets_ui.selected.remove("brush-texture-patterns");
-}
-
-pub(crate) fn full_uv() -> egui::Rect {
-    egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
 }
 
 /// Clicking a controls section shows and enables it; the final five rows only toggle, keeping
@@ -393,7 +287,7 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         // Build the group projection only while Texture is visible, borrowing the
                         // library instead of cloning every pattern on each Brush Settings redraw.
                         let patterns = &app.session.patterns.items;
-                        let pattern_groups = crate::preset_panels::pattern_group_views(patterns, &app.session.presets.pattern_groups);
+                        let pattern_groups = crate::pattern_browser::pattern_group_views(patterns, &app.session.presets.pattern_groups);
                         crate::brush_sections::section_body_with_patterns(
                             ui,
                             &mut b,
@@ -418,10 +312,11 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             });
         });
     });
-    crate::preset_panels::apply_compact_pattern_actions(
+    crate::pattern_browser::apply_compact_pattern_actions(
         app,
+        ui.ctx(),
         "brush-texture-patterns",
-        crate::preset_panels::take_compact_pattern_actions(ui.ctx(), "brush-texture-patterns"),
+        crate::pattern_browser::take_compact_pattern_actions(ui.ctx(), "brush-texture-patterns"),
     );
     ui.add_space(6.0);
     widgets::hairline(ui);
@@ -521,10 +416,11 @@ pub fn copy_texture_to_other_tools(app: &mut PhotocraftApp) {
 pub fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if ui.button(tl!("New Brush Preset…")).clicked() {
         let name = new_preset_name(&app.session.tools.presets);
-        run_or_status(app, "brush.presets.save", json!({ "name": name }));
-        if app.session.tools.presets.iter().any(|p| p.name == name) {
+        if run_or_status(app, "brush.presets.save", json!({ "name": name }))
+            && let Some(preset) = app.session.tools.presets.iter().find(|p| p.name == name)
+        {
             app.ui.brushes_panel.renaming = Some(Renaming { group: false, name: name.clone(), folder: Vec::new(), text: String::new() });
-            app.ui.brush_picker_list.renaming = Some(Renaming { group: false, name, folder: Vec::new(), text: String::new() });
+            crate::brush_picker::begin_rename(&mut app.ui.presets_ui, preset);
         }
         ui.close();
     }

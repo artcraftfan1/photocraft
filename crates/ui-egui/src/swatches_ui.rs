@@ -15,10 +15,10 @@ use egui::{Color32, CornerRadius, Rect};
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
-use crate::preset_panels::{
-    BrowserAdapter, BrowserCapabilities, BrowserOptions, Ev, FooterOptions, GroupView, ItemView, ShellOptions, picker_shell, run, standard_group_context_menu,
-    standard_item_context_menu,
-};
+use crate::picker_footer::FooterOptions;
+use crate::picker_shell::{ShellOptions, picker_shell};
+use crate::asset_browser::{BrowserAdapter, BrowserCapabilities, BrowserOptions, BrowserAction, GroupView, ItemView, standard_group_context_menu, standard_item_context_menu};
+use crate::preset_commands::run;
 
 /// The browser's panel key (selection, folder state and thumbnail size live under it).
 pub const PANEL: &str = "swatches";
@@ -69,26 +69,41 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             items: g.items.iter().map(|s| ItemView { key: s.name.clone(), name: s.name.clone(), folder: Vec::new() }).collect(),
         })
         .collect();
+    let mut st = std::mem::take(&mut app.ui.presets_ui);
     let table = colors(app, ui.ctx());
     let canvas = app.last_canvas_rect;
-    let mut st = std::mem::take(&mut app.ui.presets_ui);
     st.sizes.entry(PANEL.to_string()).or_insert(DEFAULT_SIZE);
     // Flat, touching squares, as in Photoshop's Swatches panel (#5103).
     let mut adapter = BrowserAdapter {
         panel: PANEL,
         groups: &groups,
-        options: BrowserOptions { canvas, flush: true },
+        options: BrowserOptions { canvas, flush: true, all_groups_open: true, compact_context_menus: false, item_size: None, list_item_height: None, domain_hierarchy_actions: false },
         capabilities: BrowserCapabilities::default(),
         item_context_menu: Some(standard_item_context_menu),
         group_context_menu: Some(standard_group_context_menu),
+        folder_context_menu: None,
         paint_group: None,
         paint_item: &mut |ui, r: Rect, gi, ii| {
-            let c = table.get(gi).and_then(|g| g.get(ii)).copied().unwrap_or(Color32::GRAY);
+            let c = table.get(gi).and_then(|items| items.get(ii)).copied().unwrap_or(Color32::GRAY);
             ui.painter().rect_filled(r, CornerRadius::ZERO, c);
         },
+        paint_list_item: None,
+    };
+    let mut menu = |ui: &mut egui::Ui, state: &mut crate::picker_state::PresetUi, panel: &str| {
+        ui.menu_button(tl!("Panel menu"), |ui| {
+            crate::picker_shell::search_toggle(ui, state, panel);
+            ui.separator();
+            panel_menu(app, ui);
+        });
     };
     let events =
-        picker_shell(ui, &mut st, &mut adapter, ShellOptions { footer: Some(FooterOptions::standard(tl!("Create new swatch"))), ..Default::default() });
+        picker_shell(
+            ui,
+            &mut st,
+            &mut adapter,
+            ShellOptions { panel_options: Some(&mut menu), footer: Some(FooterOptions::standard(tl!("Create new swatch"))), ..Default::default() },
+        );
+    drop(menu);
     app.ui.presets_ui = st;
     let mods = ui.input(|i| i.modifiers);
     for e in events {
@@ -96,43 +111,49 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-fn handle(app: &mut PhotocraftApp, e: Ev, background: bool) {
+fn handle(app: &mut PhotocraftApp, e: BrowserAction, background: bool) {
     let sel = |app: &mut PhotocraftApp, k: &str| {
         app.ui.presets_ui.selected.insert(PANEL.into(), k.to_string());
     };
     match e {
-        Ev::Select(k) => {
+        BrowserAction::Select(k) => {
             sel(app, &k);
             use_swatch(app, &k, background);
         }
-        Ev::Activate(k) => {
+        BrowserAction::Activate(k) => {
             sel(app, &k);
             app.ui.presets_ui.renaming = Some((PANEL.into(), k.clone(), k));
         }
         // Swatches don't drop onto the canvas.
-        Ev::Drop(..) => {}
-        Ev::Rename(k, n) => {
+        BrowserAction::Drop(..) => {}
+        BrowserAction::Rename(k, n) => {
             if run(app, "swatches.rename", json!({"swatch": k, "name": n})).is_some() && app.ui.presets_ui.selected.get(PANEL) == Some(&k) {
                 sel(app, &n);
             }
         }
-        Ev::Delete(k) => {
+        BrowserAction::Delete(k) => {
             if run(app, "swatches.delete", json!({"swatch": k})).is_some() {
                 app.ui.presets_ui.selected.remove(PANEL);
             }
         }
-        Ev::Move(k, g) => drop(run(app, "swatches.move", json!({"swatch": k, "to": g}))),
-        Ev::MoveItem(k, g, index) => {
+        BrowserAction::Move(k, g) => drop(run(app, "swatches.move", json!({"swatch": k, "to": g}))),
+        BrowserAction::MoveItem(k, g, index) => {
             let mut params = json!({"swatch": k, "to": g});
             if let Some(index) = index {
                 params["position"] = json!(index);
             }
             drop(run(app, "swatches.move", params));
         }
-        Ev::RenameGroup(g, n) => drop(run(app, "swatches.renameGroup", json!({"group": g, "name": n}))),
-        Ev::DeleteGroup(g) => drop(run(app, "swatches.deleteGroup", json!({"group": g}))),
-        Ev::NewGroup => new_group(app),
-        Ev::New => new_swatch(app),
+        BrowserAction::RenameGroup(g, n) => drop(run(app, "swatches.renameGroup", json!({"group": g, "name": n}))),
+        BrowserAction::DeleteGroup(g) => drop(run(app, "swatches.deleteGroup", json!({"group": g}))),
+        // Only the brush browser supports nested-folder context actions.
+        BrowserAction::RenameFolder { .. }
+        | BrowserAction::DeleteFolder { .. }
+        | BrowserAction::MoveItemToFolder { .. }
+        | BrowserAction::MoveGroup { .. }
+        | BrowserAction::MoveInto { .. } => {},
+        BrowserAction::NewGroup => new_group(app),
+        BrowserAction::New => new_swatch(app),
     }
 }
 
@@ -200,7 +221,13 @@ pub fn import_bytes(app: &mut PhotocraftApp, name: &str, bytes: &[u8], replace: 
 }
 
 fn import_dialog(app: &mut PhotocraftApp, replace: bool) -> Result<Value, String> {
-    app.pick_file_bytes(move |app, name, bytes| import_bytes(app, &name, &bytes, replace))
+    app.pick_file_bytes_filtered(&["aco", "ase"], move |app, name, bytes| {
+        let ext = std::path::Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        if !matches!(ext.as_str(), "aco" | "ase") {
+            return Err(tl!("Choose a swatch file (.aco or .ase).").into());
+        }
+        import_bytes(app, &name, &bytes, replace)
+    })
 }
 
 fn export_dialog(app: &mut PhotocraftApp, format: &str) -> Result<Value, String> {
@@ -405,7 +432,7 @@ mod tests {
         assert_eq!(h.state().ui.presets_ui.selected.get(PANEL).map(String::as_str), Some("Black"));
         // The footer's trash deletes the selection.
         let n = h.state().session.presets.swatches[0].items.len();
-        handle(h.state_mut(), Ev::Delete("Black".into()), false);
+        handle(h.state_mut(), BrowserAction::Delete("Black".into()), false);
         assert_eq!(h.state().session.presets.swatches[0].items.len(), n - 1);
     }
 
@@ -472,7 +499,7 @@ mod tests {
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let mut h = Harness::builder().with_size(vec2(300.0, 4000.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel(app, ui), app);
         h.run_steps(2);
-        let headers = crate::preset_panels::last_group_headers(&h.ctx, PANEL);
+        let headers = crate::asset_browser::last_group_headers(&h.ctx, PANEL);
         assert!(headers.len() >= 2, "the default library has folders: {headers:?}");
         let names: Vec<String> = headers.iter().map(|(n, _)| n.clone()).collect();
         let (first, first_r) = &headers[0];

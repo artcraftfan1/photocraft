@@ -667,6 +667,36 @@ pub(crate) fn panel_window(app: &PhotocraftApp, ctx: &egui::Context, id: &str, t
         });
 }
 
+/// Stateful floating panel using the common panel frame and workspace-lock convention.
+pub(crate) fn panel_window_open(
+    app: &mut PhotocraftApp,
+    ctx: &egui::Context,
+    id: &str,
+    title: &str,
+    offset: egui::Vec2,
+    width: f32,
+    open: &mut bool,
+    body: impl FnOnce(&mut PhotocraftApp, &mut egui::Ui),
+) {
+    let t = Tokens::get(ctx);
+    let canvas = app.last_canvas_rect;
+    egui::Window::new(title)
+        .id(egui::Id::new(id))
+        .title_bar(true)
+        .open(open)
+        .resizable(false)
+        .movable(!app.session.prefs().workspace_locked)
+        .min_width(width)
+        .max_width(width)
+        .frame(float_frame(&t))
+        .default_pos(pos2((canvas.right() - width - 16.0 + offset.x).max(canvas.left() + 8.0), canvas.top() + offset.y))
+        .show(ctx, |ui| {
+            ui.set_width(width);
+            ui.set_max_width(width);
+            body(app, ui);
+        });
+}
+
 /// Draws the open panels and dialogs.
 pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if app.ui.analysis.measurement_log {

@@ -161,12 +161,14 @@ pub fn pointer_secondary(app: &mut PhotocraftApp, ctx: &egui::Context, down: boo
 pub fn show_picker(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some([x, y]) = app.ui.brush_picker else { return };
     if !has_brush_picker(app.ui.tool) {
-        app.ui.brush_picker = None;
+        crate::brush_picker::close(&mut app.ui);
         return;
     }
     // Escape and Enter close it once this frame's edits are in (a typed size applies), unless they
     // end a rename in its rename bar.
-    let key_close = app.ui.brush_picker_list.renaming.is_none() && ctx.input(|i| i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::Enter));
+    let picker_renaming = app.ui.presets_ui.renaming.as_ref().is_some_and(|(panel, _, _)| panel == "brush-picker")
+        || app.ui.presets_ui.folder_renaming.as_ref().is_some_and(|rename| rename.panel == "brush-picker");
+    let key_close = !picker_renaming && ctx.input(|i| i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::Enter));
     let screen = ctx.content_rect();
     // The picker's content size: the one its grip was dragged to, or the one it last closed with
     // (kept in egui's own memory, which outlives the app's), or the default. The frame's chrome
@@ -191,7 +193,17 @@ pub fn show_picker(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let mut b = before.clone();
         let list = &mut app.ui.brush_picker_list;
         let frame = egui::Frame::popup(ui.style())
-            .show(ui, |ui| crate::brush_picker::body(ui, &mut b, &app.session.tools.presets, app.session.tools.current_preset.as_deref(), list, content));
+            .show(ui, |ui| {
+                crate::brush_picker::body(
+                    ui,
+                    &mut b,
+                    &app.session.tools.presets,
+                    app.session.tools.current_preset.as_deref(),
+                    list,
+                    &mut app.ui.presets_ui,
+                    content,
+                )
+            });
         let picks = frame.inner;
         // The corner grip resizes the picker, and the size is remembered across opens.
         if let Some(new) = crate::brush_picker::resize_grip(ui, frame.response.rect, content) {
@@ -446,6 +458,69 @@ mod tests {
         assert_eq!((h.state().session.tools.brush.size, h.state().ui.brush_picker), (60.0, None));
     }
 
+    #[test]
+    fn picker_rename_enter_and_escape_do_not_close_picker() {
+        let mut h = harness(None);
+        let c = h.state().last_canvas_rect.center();
+        let (identity, name) = h.state().session.tools.presets.first().map(|preset| (crate::brush_browser::preview_identity(preset), preset.name.clone())).expect("session has brush presets");
+        for key in [egui::Key::Enter, egui::Key::Escape] {
+            h.state_mut().ui.brush_picker = Some([c.x, c.y]);
+            h.state_mut().ui.presets_ui.renaming = Some(("brush-picker".into(), identity.clone(), name.clone()));
+            h.run_steps(2);
+            h.key_press(key);
+            h.run_steps(2);
+            assert!(h.state().ui.brush_picker.is_some(), "{key:?} ends/escapes rename without closing picker");
+            assert!(h.state().ui.presets_ui.renaming.is_none(), "{key:?} is handled by the shared rename bar");
+        }
+    }
+
+    #[test]
+    fn picker_folder_rename_enter_and_escape_do_not_close_picker() {
+        let mut h = harness(None);
+        let c = h.state().last_canvas_rect.center();
+        for key in [egui::Key::Enter, egui::Key::Escape] {
+            h.state_mut().ui.brush_picker = Some([c.x, c.y]);
+            h.state_mut().ui.presets_ui.folder_renaming = Some(crate::picker_state::FolderRenameState {
+                panel: "brush-picker".into(), group: "Group".into(), folder: vec!["Folder".into()], text: "Folder".into(),
+            });
+            h.run_steps(2);
+            h.key_press(key);
+            h.run_steps(2);
+            assert!(h.state().ui.brush_picker.is_some(), "{key:?} ends/escapes folder rename without closing picker");
+            assert!(h.state().ui.presets_ui.folder_renaming.is_none(), "{key:?} is handled by the shared folder rename bar");
+        }
+    }
+
+    #[test]
+    fn closing_picker_clears_only_its_shared_rename() {
+        let mut h = harness(None);
+        h.state_mut().ui.presets_ui.renaming = Some(("brush-picker".into(), "Default".into(), "Draft".into()));
+        h.state_mut().ui.presets_ui.folder_renaming = Some(crate::picker_state::FolderRenameState {
+            panel: "brush-picker".into(), group: "Group".into(), folder: vec!["Nested".into()], text: "Draft".into(),
+        });
+        h.state_mut().ui.brush_picker = Some([100.0, 100.0]);
+        crate::brush_picker::close(&mut h.state_mut().ui);
+        assert!(h.state().ui.presets_ui.renaming.is_none());
+        assert!(h.state().ui.presets_ui.folder_renaming.is_none(), "picker-owned nested-folder rename is also transient");
+
+        h.state_mut().ui.presets_ui.renaming = Some(("brush-picker".into(), "Default".into(), "Draft".into()));
+        h.state_mut().ui.presets_ui.folder_renaming = Some(crate::picker_state::FolderRenameState {
+            panel: "patterns".into(), group: "Group".into(), folder: vec!["Nested".into()], text: "Draft".into(),
+        });
+        h.state_mut().ui.brush_picker = Some([100.0, 100.0]);
+
+        crate::brush_picker::close(&mut h.state_mut().ui);
+
+        assert!(h.state().ui.brush_picker.is_none());
+        assert!(h.state().ui.presets_ui.renaming.is_none(), "picker rename is cleared on close");
+        assert_eq!(h.state().ui.presets_ui.folder_renaming.as_ref().map(|r| r.panel.as_str()), Some("patterns"), "other panel rename state is untouched");
+
+        h.state_mut().ui.presets_ui.renaming = Some(("patterns".into(), "Pattern A".into(), "Pattern B".into()));
+        h.state_mut().ui.brush_picker = Some([100.0, 100.0]);
+        crate::brush_picker::close(&mut h.state_mut().ui);
+        assert_eq!(h.state().ui.presets_ui.renaming.as_ref().map(|r| r.0.as_str()), Some("patterns"), "unrelated shared rename is preserved");
+    }
+
     /// A sampled tip has no hardness: the picker shows only its size (Photoshop).
     #[test]
     fn picker_shows_hardness_only_for_round_tips() {
@@ -513,14 +588,14 @@ mod tests {
         assert!(!h.state().ui.brush_picker_list.show_stroke && !h.state().ui.brush_picker_list.show_tip);
         assert!(h.state().ui.brush_picker.is_some());
         // A rename left open goes with the picker.
-        h.state_mut().ui.brush_picker_list.renaming =
-            Some(crate::brush_panel::Renaming { group: false, name: "Inky".into(), folder: Vec::new(), text: String::new() });
+        let identity = h.state().session.tools.presets.iter().find(|preset| preset.name == "Inky").map(crate::brush_browser::preview_identity).expect("the preset was saved above");
+        h.state_mut().ui.presets_ui.renaming = Some(("brush-picker".into(), identity, "Inky draft".into()));
         h.run_steps(2);
         let far = c - vec2(300.0, 200.0);
         h.event(egui::Event::PointerMoved(far));
         press(&mut h, far, PointerButton::Primary, true);
         press(&mut h, far, PointerButton::Primary, false);
-        assert!(h.state().ui.brush_picker.is_none() && h.state().ui.brush_picker_list.renaming.is_none());
+        assert!(h.state().ui.brush_picker.is_none() && h.state().ui.presets_ui.renaming.is_none());
     }
 
     #[test]

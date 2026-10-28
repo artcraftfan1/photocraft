@@ -3,15 +3,16 @@
 //! field, the gear menu and the preset library in its groups); the full editor is the Brush
 //! Settings panel (F5), which the picker and the options bar open with one click (#258).
 //!
-//! The preset list is the Brushes panel's ([`brushes_tab::preset_list`]), always as cards: a
-//! click picks a preset and keeps the picker open, a double-click picks it and closes the picker
+//! The preset browser uses the brush-specific adapter over the shared asset browser, always as
+//! cards: a click picks a preset and keeps the picker open, a double-click picks it and closes the picker
 //! (#1031); drag to reorder, right-click to rename or delete. Each card is a 2 × 2 grid — tip at
 //! the top left, stroke preview at the top right and the name in the merged bottom row (or in the
 //! stroke's cell when only the tip and the name show) — and the gear's three boxes ([`body`]'s
 //! Brush Name/Brush Stroke/Brush Tip) hide its parts, at least one always on; the footer slider
 //! scales the cards. Its view state (search, collapsed groups, the card's parts, the footer
-//! scale, a rename in progress) is `UiState::brush_picker_list`, so the control channel can read
-//! and set it. The gear's parts and the footer scale are remembered across restarts
+//! scale) is `UiState::brush_picker_list`; shared browser rename state is namespaced in
+//! `UiState::presets_ui` under `brush-picker`, so the control channel can inspect it consistently.
+//! The gear's parts and the footer scale are remembered across restarts
 //! ([`persist`]/[`restore`], `Preferences::brush_picker`); the search, collapsed groups and a
 //! rename in progress are not.
 //!
@@ -24,8 +25,9 @@ use photocraft_engine::BrushSettings;
 use photocraft_engine::paint::{BrushPreset, MAX_BRUSH_SIZE, TipShape};
 use serde_json::{Value, json};
 
-use crate::brush_panel::{BrushesPanelState, Renaming};
-use crate::brushes_tab::{self, Action, ListLayout};
+use crate::brush_panel::BrushesPanelState;
+use crate::brushes_tab::{self, Action};
+pub(crate) use crate::brush_browser::SCALE_RANGE;
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons, widgets};
 
@@ -34,9 +36,6 @@ pub const WIDTH: f32 = 300.0;
 /// The picker's content size before its grip is dragged, and the smallest it can be dragged to.
 pub const DEFAULT_SIZE: [f32; 2] = [WIDTH, 420.0];
 pub const MIN_SIZE: [f32; 2] = [230.0, 170.0];
-/// The picker's preset list: denser than the Brushes tab's, and always the cards (its tip, stroke
-/// and name cells, set by [`BrushesPanelState::show_name`] and friends).
-pub(crate) const LIST: ListLayout = ListLayout { id: "brush-picker-presets", max_height: 300.0, cell: 44.0, indent: 4.0, cards: true };
 /// The scale slider's height (the Size and Hardness sliders').
 const SLIDER_H: f32 = 18.0;
 /// The least gap between the preset list and the slider under it.
@@ -49,11 +48,6 @@ const GRIP_ROOM: f32 = 20.0;
 /// The block the Size and Hardness controls share, flush with the picker's left edge and at most
 /// this wide: a picker dragged wider keeps the controls their size, the space past them empty.
 pub(crate) const HEAD_MAX_W: f32 = 350.0;
-/// The footer scale slider's range: what the cards' size scale runs between, and what a
-/// remembered scale is clamped to (under the bottom the cards' padding and rows stop making
-/// sense).
-pub(crate) const SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.15..=2.0;
-
 /// What the picker asks for beyond the size and hardness edits.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pick {
@@ -97,10 +91,22 @@ pub fn on_chip(ctx: &egui::Context, p: egui::Pos2) -> bool {
     ctx.read_response(chip_id()).is_some_and(|r| r.rect.contains(p))
 }
 
-/// Close the picker. A rename left open in it goes too, like Photoshop's name dialog.
+/// Close the picker. Only transient rename state owned by this picker is dismissed; other preset
+/// panels share `PresetUi` and must retain their own rename state.
 pub fn close(ui: &mut crate::state::UiState) {
     ui.brush_picker = None;
-    ui.brush_picker_list.renaming = None;
+    if ui.presets_ui.renaming.as_ref().is_some_and(|(panel, _, _)| panel == "brush-picker") {
+        ui.presets_ui.renaming = None;
+    }
+    if ui.presets_ui.folder_renaming.as_ref().is_some_and(|rename| rename.panel == "brush-picker") {
+        ui.presets_ui.folder_renaming = None;
+    }
+}
+
+/// Start the shared browser's in-place rename for this exact preset occurrence. Brush commands
+/// still address names, so the gear menu only offers this action when that name is unambiguous.
+pub(crate) fn begin_rename(preset_ui: &mut crate::picker_state::PresetUi, preset: &BrushPreset) {
+    preset_ui.renaming = Some(("brush-picker".to_string(), crate::brush_browser::preview_identity(preset), preset.name.clone()));
 }
 
 /// The state the picker's preset list starts from: every card part on (tip, stroke and name).
@@ -216,10 +222,12 @@ pub fn body(
     presets: &[BrushPreset],
     current: Option<&str>,
     st: &mut BrushesPanelState,
+    preset_ui: &mut crate::picker_state::PresetUi,
     size: egui::Vec2,
 ) -> Vec<Pick> {
     let t = Tokens::get(ui.ctx());
     let state = std::cell::RefCell::new(st);
+    let preset_ui = std::cell::RefCell::new(preset_ui);
     let picks = std::cell::RefCell::new(Vec::new());
     // The picker is its dragged (or remembered) size: at least that tall even when every group
     // is closed, so reopening one has the room to show it.
@@ -257,7 +265,7 @@ pub fn body(
     let controls_h = (ui.cursor().min.y - top).max(0.0);
     let mut menu = |ui: &mut egui::Ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            gear_menu(ui, current, presets, &mut state.borrow_mut(), &mut picks.borrow_mut());
+            gear_menu(ui, current, presets, &mut state.borrow_mut(), &mut preset_ui.borrow_mut(), &mut picks.borrow_mut());
             let new_tip = "Create new brush preset from the current settings";
             let settings_tip = "Brush Settings…  (F5): every option of this brush";
             if named(icons::button(ui, "square-plus", 24.0, false, tl!(new_tip)), "New Brush Preset").clicked() {
@@ -275,7 +283,7 @@ pub fn body(
             widgets::text_field(
                 ui,
                 ui.id().with("brush-picker-search"),
-                &mut state.borrow_mut().filter,
+                preset_ui.borrow_mut().search.entry("brush-picker".to_string()).or_default(),
                 tl!("Search Brushes"),
                 (size.x - 40.0).max(60.0),
                 false,
@@ -287,23 +295,31 @@ pub fn body(
         scale_slider(ui, &mut state.borrow_mut());
     };
     let show_search = {
-        let state = state.borrow();
-        state.picker_search_visible
+        preset_ui.borrow().search_visible.get("brush-picker").copied().unwrap_or(true)
     };
 
-    let list_picks = crate::preset_panels::picker_shell_custom(
+    let list_picks = crate::picker_shell::picker_shell_custom(
         ui,
         (size.y - controls_h).max(0.0),
-        crate::preset_panels::ShellOptions {
+        crate::picker_shell::CustomShellOptions {
             panel_menu: Some(&mut menu),
             search: if show_search { Some(&mut search) } else { None },
-            // Re-enable the recent-items strip when it is implemented.
-            // recents: if show_recents { Some(&mut recents) } else { None },
-            custom_footer: Some((&mut footer, FOOTER_H)),
+            footer: Some((&mut footer, FOOTER_H)),
             ..Default::default()
         },
         |ui, allocated_h| {
-            brushes_tab::preset_list(ui, presets, current, &mut state.borrow_mut(), ListLayout { max_height: (allocated_h - 4.0).max(80.0), ..LIST })
+            let actions = {
+                    let mut brush_state = state.borrow_mut();
+                    crate::brush_browser::picker_browser(
+                        ui,
+                        presets,
+                        current,
+                        &mut brush_state,
+                        &mut **preset_ui.borrow_mut(),
+                        (allocated_h - 4.0).max(80.0),
+                    )
+            };
+            actions
                 .into_iter()
                 .map(Pick::List)
                 .collect::<Vec<_>>()
@@ -388,8 +404,15 @@ pub fn resize_grip(ui: &mut egui::Ui, frame: egui::Rect, content: egui::Vec2) ->
 
 /// The gear: Photoshop's picker menu. A new preset, rename or delete the current one, the list's
 /// view, and Import Brushes.
-fn gear_menu(ui: &mut egui::Ui, current: Option<&str>, presets: &[BrushPreset], st: &mut BrushesPanelState, picks: &mut Vec<Pick>) {
-    let gear = named(crate::preset_panels::picker_menu_button(ui, "Brush Preset Options"), "Brush Preset Options");
+fn gear_menu(
+    ui: &mut egui::Ui,
+    current: Option<&str>,
+    presets: &[BrushPreset],
+    st: &mut BrushesPanelState,
+    preset_ui: &mut crate::picker_state::PresetUi,
+    picks: &mut Vec<Pick>,
+) {
+    let gear = named(crate::picker_shell::picker_menu_button(ui, "Brush Preset Options"), "Brush Preset Options");
     // The menu hangs 30 pt right of the gear, off the button's own edge; the align fallbacks still
     // keep it on screen near the window's edge.
     let anchor = match egui::PopupAnchor::from(&gear) {
@@ -402,21 +425,28 @@ fn gear_menu(ui: &mut egui::Ui, current: Option<&str>, presets: &[BrushPreset], 
             ui.close();
         }
         ui.separator();
-        let current = current.filter(|n| presets.iter().any(|p| p.name.eq_ignore_ascii_case(n))).map(str::to_string);
-        ui.add_enabled_ui(current.is_some(), |ui| {
-            if ui.button(tl!("Rename Brush…")).clicked()
-                && let Some(name) = current.clone()
-            {
-                st.renaming = Some(Renaming { group: false, name, folder: Vec::new(), text: String::new() });
-                ui.close();
-            }
-            if ui.button(tl!("Delete Brush")).clicked()
-                && let Some(name) = current.clone()
-            {
-                picks.push(Pick::List(Action::Delete(name)));
-                ui.close();
-            }
-        });
+        let ambiguous = current.is_some_and(|name| crate::brush_browser::is_ambiguous_preset_name(presets, name));
+        let current = current.filter(|_| !ambiguous).and_then(|name| presets.iter().find(|preset| preset.name.eq_ignore_ascii_case(name)));
+        let rename = ui.add_enabled(current.is_some(), egui::Button::new(tl!("Rename Brush…")));
+        if ambiguous {
+            rename.clone().on_hover_text(tl!("Rename unavailable because multiple brushes share this name"));
+        }
+        if rename.clicked()
+            && let Some(preset) = current
+        {
+            begin_rename(preset_ui, preset);
+            ui.close();
+        }
+        let delete = ui.add_enabled(current.is_some(), egui::Button::new(tl!("Delete Brush")));
+        if ambiguous {
+            delete.clone().on_hover_text(tl!("Delete unavailable because multiple brushes share this name"));
+        }
+        if delete.clicked()
+            && let Some(preset) = current
+        {
+            picks.push(Pick::List(Action::Delete(preset.name.clone())));
+            ui.close();
+        }
         ui.separator();
         // What a preset's card shows: a checkbox per part. At least one stays on — clicking the
         // last checked box does nothing, since an empty card would show no brush at all.
@@ -428,13 +458,30 @@ fn gear_menu(ui: &mut egui::Ui, current: Option<&str>, presets: &[BrushPreset], 
             }
         }
         ui.separator();
-        ui.checkbox(&mut st.picker_search_visible, tl!("Show Search Bar"));
-        // Re-enable when the recent-items strip is implemented.
-        // ui.checkbox(&mut st.picker_recents_visible, tl!("Show recents"));
+        crate::picker_shell::search_toggle(ui, preset_ui, "brush-picker");
         ui.separator();
         if ui.button(tl!("Import Brushes…")).clicked() {
             picks.push(Pick::Import);
             ui.close();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::begin_rename;
+
+    #[test]
+    fn picker_rename_uses_shared_panel_and_occurrence_identity() {
+        let session = photocraft_engine::Session::new();
+        let preset = session.tools.presets.first().expect("session has built-in brush presets");
+        let expected_key = crate::brush_browser::preview_identity(preset);
+        let expected_name = preset.name.clone();
+        let mut state = crate::picker_state::PresetUi::default();
+
+        begin_rename(&mut state, preset);
+
+        assert_eq!(state.renaming, Some(("brush-picker".into(), expected_key, expected_name.clone())));
+        assert_eq!(state.renaming.as_ref().map(|(_, _, text)| text.as_str()), Some(expected_name.as_str()));
+    }
 }

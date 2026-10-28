@@ -306,19 +306,18 @@ fn brush_preset_menu_action_outside_the_picker_keeps_it_open() {
     let at = fractional_point(&h, 1.0);
     tap(&mut h, at, Modifiers::NONE, true);
     let picker = h.ctx.memory(|m| m.area_rect(egui::Id::new("canvas-brush-picker"))).unwrap();
-    let name = h.state().session.tools.presets.first().unwrap().name.clone();
+    let (name, identity) = h.state().session.tools.presets.first().map(|preset| (preset.name.clone(), crate::brush_browser::preview_identity(preset))).unwrap();
     let card = h.query_all_by_label(&name).find(|n| picker.contains(n.rect().center())).expect("visible preset card").rect();
     // Open by the right edge so the action lands outside the picker on a foreground menu.
     tap(&mut h, pos2(card.right() - 20.0, card.center().y), Modifiers::NONE, false);
-    assert!(egui::Popup::is_any_open(&h.ctx), "preset menu at {card:?} in picker {picker:?}");
     let rename = h.get_by_label(crate::i18n::t("Rename Brush…"));
     assert!(!picker.contains(rename.rect().center()), "exercise the floating-menu exception outside the picker");
     rename.click();
     h.run_steps(3);
     assert!(h.state().ui.brush_picker.is_some());
-    assert!(h.state().ui.brush_picker_list.renaming.is_some());
+    assert!(h.state().ui.presets_ui.renaming.as_ref().is_some_and(|(panel, key, _)| panel == "brush-picker" && key == &identity));
     assert!(document_state(&h) == before, "pixels, selection, layers and history are unchanged");
     dismiss_outside(&mut h, Popup::Brush);
-    assert!(h.state().ui.brush_picker_list.renaming.is_none());
+    assert!(h.state().ui.presets_ui.renaming.is_none());
     assert!(document_state(&h) == before, "pixels, selection, layers and history are unchanged");
 }

@@ -1187,7 +1187,7 @@ pub struct UiState {
     pub layer_comp_selected: Option<u32>,
     /// Preset panels (Gradients, Patterns, Styles, Shapes, Tool Presets, Clone Source).
     #[serde(default)]
-    pub presets_ui: crate::preset_panels::PresetUi,
+    pub presets_ui: crate::picker_state::PresetUi,
     /// Character/Paragraph Styles, Glyphs and Check Spelling (see `type_panels_ui`).
     #[serde(default)]
     pub type_panels: crate::type_panels_ui::TypePanelsUi,

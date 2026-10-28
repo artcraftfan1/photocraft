@@ -34,7 +34,7 @@ pub(crate) fn panel_alias(id: &str) -> Option<&'static str> {
         "layers" => "window.toggle.layers",
         "history" => "window.toggle.history",
         "properties" | "adjustments" => "window.toggle.properties",
-        "color" | "swatches" => "window.toggle.color",
+        "color" => "window.toggle.color",
         "navigator" | "info" | "histogram" => "window.toggle.navigator",
         "tools" => "window.toggle.toolbar",
         "options" => "window.toggle.options",
@@ -109,6 +109,11 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         crate::canvas::commit_crop(app);
         return Ok(json!({"committed": true}));
     }
+    // These Window-menu items open standalone preset windows; direct panel-docking commands still
+    // retain their separate meaning for the docked Color-card presentations.
+    if crate::preset_panels::handles(id) {
+        return crate::preset_panels::menu(app, id, &params).unwrap_or_else(|| Ok(Value::Null));
+    }
     if let Some(result) = crate::panel_docking::command(app, id, &params) {
         return result;
     }
@@ -125,10 +130,6 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     }
     // Workspace New/Delete/Lock, Modifier Keys, custom pixel aspect, Extras/32-bit options.
     if let Some(r) = crate::workspace_ui::menu(app, id, &params) {
-        return r;
-    }
-    // Window › Gradients, Patterns, Styles, Shapes, Tool Presets, Clone Source.
-    if let Some(r) = crate::preset_panels::menu(app, id, &params) {
         return r;
     }
     // Character/Paragraph Styles, Glyphs, Edit › Check Spelling dialog.

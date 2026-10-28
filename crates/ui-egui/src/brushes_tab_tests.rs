@@ -1,9 +1,12 @@
 //! The preset grid (the Brush Preset picker's and the Brushes tab's) is centred: every row has the
 //! same left margin, and the spare width is split between the two sides.
 
-use egui::{Rect, accesskit::Role, vec2};
+use egui::{Color32, Rect, accesskit::Role, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
+
+use crate::brush_browser::BrushDrag;
+use crate::brush_panel::grouped_presets;
 
 use super::*;
 
@@ -37,17 +40,40 @@ fn shared_hierarchy_drop_contract_preserves_brush_folder_moves() {
 
 #[test]
 fn collapsed_hierarchy_state_follows_group_and_folder_renames() {
-    let mut collapsed = vec!["Imported".into(), "Imported/Soft".into(), "Imported/Soft/Inner".into(), "Other/Soft".into()];
-    remap_collapsed_prefix(&mut collapsed, "Imported/Soft", "Imported/Gentle");
-    assert_eq!(collapsed, vec!["Imported".to_string(), "Imported/Gentle".into(), "Imported/Gentle/Inner".into(), "Other/Soft".into()]);
+    let key = |group: &str, folder: &[&str]| folder_view_key(group, &folder.iter().map(|part| (*part).to_string()).collect::<Vec<_>>());
+    let mut collapsed = vec![key("Imported", &[]), key("Imported", &["Soft"]), key("Imported", &["Soft", "Inner"]), key("Other", &["Soft"])];
+    remap_collapsed_prefix(&mut collapsed, &key("Imported", &["Soft"]), &key("Imported", &["Gentle"]));
+    assert_eq!(collapsed, vec![key("Imported", &[]), key("Imported", &["Gentle"]), key("Imported", &["Gentle", "Inner"]), key("Other", &["Soft"])]);
 
-    remap_collapsed_prefix(&mut collapsed, "Imported", "Library");
-    assert_eq!(collapsed, vec!["Library".to_string(), "Library/Gentle".into(), "Library/Gentle/Inner".into(), "Other/Soft".into()]);
+    remap_collapsed_prefix(&mut collapsed, &key("Imported", &[]), &key("Library", &[]));
+    assert_eq!(collapsed, vec![key("Library", &[]), key("Library", &["Gentle"]), key("Library", &["Gentle", "Inner"]), key("Other", &["Soft"])]);
 
-    remove_collapsed_prefix(&mut collapsed, "Library/Gentle");
-    assert_eq!(collapsed, vec!["Library".to_string(), "Other/Soft".into()]);
-    remove_collapsed_prefix(&mut collapsed, "Library");
-    assert_eq!(collapsed, vec!["Other/Soft".to_string()]);
+    remove_collapsed_prefix(&mut collapsed, &key("Library", &["Gentle"]));
+    assert_eq!(collapsed, vec![key("Library", &[]), key("Other", &["Soft"])]);
+    remove_collapsed_prefix(&mut collapsed, &key("Library", &[]));
+    assert_eq!(collapsed, vec![key("Other", &["Soft"])]);
+}
+
+#[test]
+fn folder_view_keys_escape_slashes_and_percent_signs() {
+    assert_ne!(folder_view_key("A/B", &[]), folder_view_key("A", &["B".into()]));
+    assert_ne!(folder_view_key("A", &["B/C".into()]), folder_view_key("A", &["B".into(), "C".into()]));
+    assert_ne!(folder_view_key("A%2FB", &[]), folder_view_key("A/B", &[]));
+}
+
+#[test]
+fn brush_hierarchy_preserves_the_supported_folder_depth() {
+    fn depth(nodes: &[Node<'_>]) -> usize {
+        nodes.iter().map(|node| match node {
+            Node::Preset(_) => 0,
+            Node::Folder(folder) => 1 + depth(&folder.children),
+        }).max().unwrap_or(0)
+    }
+
+    let mut presets = photocraft_engine::Session::new().tools.presets;
+    let Some(preset) = presets.first_mut() else { return };
+    preset.folder = (0..MAX_VIEW_DEPTH).map(|n| format!("Folder {n}")).collect();
+    assert_eq!(depth(&folder_tree(&[preset])), MAX_VIEW_DEPTH);
 }
 
 #[test]
@@ -75,7 +101,7 @@ fn dragging_a_brush_shows_its_tip_preview() {
             if mode == 2 {
                 app.ui.brush_picker = Some([300.0, 120.0]);
             }
-            let name = app.session.tools.presets[0].name.clone();
+            let (name, identity) = app.session.tools.presets.first().map(|preset| (preset.name.clone(), crate::brush_browser::preview_identity(preset))).unwrap();
             let brush = app.session.tools.brush.clone();
             let presets = app.session.tools.presets.clone();
             let mut h = Harness::builder().with_size(vec2(1200.0, 900.0)).build_eframe(move |cc| {
@@ -91,7 +117,10 @@ fn dragging_a_brush_shows_its_tip_preview() {
             let end = start + vec2(50.0, 10.0);
             h.event(egui::Event::PointerMoved(end));
             h.run_steps(4);
-            assert!(matches!(egui::DragAndDrop::payload::<BrushDrag>(&h.ctx).as_deref(), Some(BrushDrag::Preset { scope, key }) if scope.as_str() == "brushes" && key == &name));
+            let current_identity = h.state().session.tools.presets.iter().find(|preset| preset.name == name).map(crate::brush_browser::preview_identity).unwrap();
+            let payload = egui::DragAndDrop::payload::<BrushDrag>(&h.ctx);
+            let expected_scope = if mode == 2 { "brush-picker" } else { "brushes" };
+            assert!(matches!(payload.as_deref(), Some(BrushDrag::Preset { scope, key }) if scope.as_str() == expected_scope && key == &current_identity), "drag key must identify this preset occurrence: {identity} → {current_identity}; payload: {payload:?}");
             assert!(h.query_by_role_and_label(Role::Image, &name).is_some(), "dragged brush needs a real tip thumbnail, not only its name");
             let renders = brush_preview::render_count(&h.ctx);
             h.run_steps(2);

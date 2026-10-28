@@ -15,6 +15,19 @@ macro_rules! tl {
 }
 
 pub mod actions;
+pub(crate) mod asset_browser_groups;
+pub mod asset_browser_hierarchy;
+pub(crate) mod asset_browser_items;
+pub(crate) mod asset_browser;
+pub(crate) mod asset_browser_interaction;
+pub(crate) mod picker_shell;
+pub(crate) mod picker_footer;
+pub(crate) mod pattern_browser;
+pub(crate) mod gradients_browser;
+pub(crate) mod brush_browser;
+pub(crate) mod picker_state;
+pub(crate) mod preset_commands;
+pub(crate) mod preset_preview;
 pub mod adjust_dialog;
 pub mod adjust_editors;
 pub mod adjust_preview;
@@ -3145,3 +3158,6 @@ mod channel_tint_tests {
 
 #[cfg(test)]
 mod options_hit_area_tests;
+
+#[cfg(test)]
+mod brush_browser_identity_tests;

@@ -799,7 +799,11 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                     app.ui.brush_picker_list.scale = v;
                 }
                 if let Some(at) = brush_picker {
-                    app.ui.brush_picker = at;
+                    if at.is_none() {
+                        crate::brush_picker::close(&mut app.ui);
+                    } else {
+                        app.ui.brush_picker = at;
+                    }
                 }
                 // Which chip the Color panel edits.
                 if let Some(c) = color_panel {
@@ -1324,7 +1328,16 @@ pub fn inspect(app: &PhotocraftApp, ctx: &egui::Context) -> Value {
             "list": {
                 "collapsed": app.ui.brush_picker_list.collapsed,
                 "filter": app.ui.brush_picker_list.filter,
-                "renaming": app.ui.brush_picker_list.renaming,
+                "renaming": app.ui.presets_ui.renaming.as_ref().filter(|(panel, _, _)| panel == "brush-picker").map(|(_, key, text)| {
+                    let group_name = key.strip_prefix("group:");
+                    let name = crate::brush_browser::preset_by_identity(&app.session.tools.presets, key)
+                        .map(|preset| preset.name.clone())
+                        .or_else(|| group_name.map(str::to_owned))
+                        .unwrap_or_else(|| key.clone());
+                    json!({"group": group_name.is_some(), "name": name, "folder": [], "text": text})
+                }).or_else(|| app.ui.presets_ui.folder_renaming.as_ref().filter(|rename| rename.panel == "brush-picker").map(|rename| {
+                    json!({"group": true, "name": rename.group, "folder": rename.folder, "text": rename.text})
+                })),
                 // The card's parts (`view` is the Brushes panel's listing and doesn't apply).
                 "showName": app.ui.brush_picker_list.show_name,
                 "showStroke": app.ui.brush_picker_list.show_stroke,
@@ -2225,6 +2238,35 @@ mod tests {
         assert_eq!(call(&mut app, &ctx, "ui.set", json!({"brushPicker": null}))["ok"], true);
         let closed_again = call(&mut app, &ctx, "ui.inspect", json!({}));
         assert!(closed_again["result"]["brushPicker"].is_null());
+    }
+
+    #[test]
+    fn ui_inspect_reports_shared_brush_picker_rename_not_legacy_state() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        let (identity, display_name) = app.session.tools.presets.first().map(|preset| {
+            (crate::brush_browser::preview_identity(preset), preset.name.clone())
+        }).expect("session has brush presets");
+        app.ui.brush_picker = Some([20.0, 30.0]);
+        app.ui.brush_picker_list.renaming = Some(crate::brush_panel::Renaming {
+            group: false, name: "Legacy stale".into(), folder: Vec::new(), text: "Legacy stale".into(),
+        });
+        app.ui.presets_ui.renaming = Some(("patterns".into(), "Pattern A".into(), "Pattern B".into()));
+        let unrelated = call(&mut app, &ctx, "ui.inspect", json!({}));
+        assert!(unrelated["result"]["brushPicker"]["list"]["renaming"].is_null(), "other panel rename must be filtered: {unrelated}");
+
+        app.ui.presets_ui.renaming = Some(("brush-picker".into(), identity, "Draft".into()));
+        let picker = call(&mut app, &ctx, "ui.inspect", json!({}));
+        assert_eq!(picker["result"]["brushPicker"]["list"]["renaming"]["group"], false, "{picker}");
+        assert_eq!(picker["result"]["brushPicker"]["list"]["renaming"]["name"], display_name, "inspect resolves the occurrence key to its display name: {picker}");
+        assert_eq!(picker["result"]["brushPicker"]["list"]["renaming"]["text"], "Draft", "inspect reports actual shared rename state: {picker}");
+
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"brushPicker": null}))["ok"], true);
+        assert!(app.ui.presets_ui.renaming.is_none(), "the control-channel close uses the same picker-scoped cleanup");
+
+        app.ui.presets_ui.renaming = Some(("patterns".into(), "Pattern A".into(), "Pattern B".into()));
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"brushPicker": null}))["ok"], true);
+        assert_eq!(app.ui.presets_ui.renaming.as_ref().map(|r| r.0.as_str()), Some("patterns"), "closing picker preserves other panels' shared rename");
     }
 
     #[test]
