@@ -1,6 +1,6 @@
 //! Shared brush preset browser used by the Brushes tab and the right-click Brush Picker.
 
-use egui::{Color32, RichText, Stroke, pos2, vec2};
+use egui::{Color32, RichText, pos2, vec2};
 use photocraft_engine::paint::BrushPreset;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -490,11 +490,12 @@ fn paint_picker_card(ui: &egui::Ui, rect: egui::Rect, preset: &BrushPreset, sele
     let compact = scale <= CARD_COMPACT_SCALE;
     let scale_h = scale.max(CARD_MIN_H_SCALE);
     let t = Tokens::get(ui.ctx());
-    let card = rect.shrink2(vec2((4.0 * scale).min(rect.width() * 0.5), 0.0));
+    // The shared browser draws the selection outline around `rect`, so the card background must
+    // use that same horizontal extent rather than leaving an unoutlined inset on either side.
+    let card = rect;
     ui.painter().rect_filled(card, 3.0, darker(t.card, CARD_BG_SHADE));
     if selected {
         ui.painter().rect_filled(card, 3.0, t.accent_soft);
-        ui.painter().rect_stroke(card, 3.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
     } else if hovered {
         ui.painter().rect_filled(card, 3.0, t.hover);
     }
