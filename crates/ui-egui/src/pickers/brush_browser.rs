@@ -536,7 +536,7 @@ fn paint_picker_card(ui: &egui::Ui, rect: egui::Rect, preset: &BrushPreset, sele
             // Card scale changes the destination rectangle, not the brush's stroke. Keep one
             // canonical preview per preset so dragging the footer slider doesn't rasterize and
             // upload a new texture for every intermediate width/height.
-            let stroke = brush_preview::stroke_texture(ui.ctx(), &format!("brushes-stroke:{identity}"), brush, 260, 36, t.text);
+            let stroke = picker_stroke_texture(ui.ctx(), &identity, brush, t.text);
             let stroke_rect = egui::Rect::from_min_size(pos2(cell.left() + 8.0 * scale, cell.center().y - 18.0 * scale_h), vec2(width, 36.0 * scale_h));
             ui.painter().image(stroke.id(), stroke_rect, full_uv(), Color32::WHITE);
         } else {
@@ -848,6 +848,18 @@ pub(crate) fn max_picker_card_scale(width: f32, show: (bool, bool, bool)) -> f32
     ((width - 8.0).max(0.0) / base_width).clamp(*SCALE_RANGE.start(), *SCALE_RANGE.end())
 }
 
+/// Return the picker's canonical stroke texture. Card scale changes only the destination rectangle;
+/// keeping the source dimensions fixed prevents a resize drag from rasterizing a new preview each
+/// frame.
+fn picker_stroke_texture(
+    ctx: &egui::Context,
+    identity: &str,
+    brush: &photocraft_engine::BrushSettings,
+    color: Color32,
+) -> egui::TextureHandle {
+    brush_preview::stroke_texture(ctx, &format!("brushes-stroke:{identity}"), brush, 260, 36, color)
+}
+
 fn show_parts(state: &BrushesPanelState) -> (bool, bool, bool) {
     (state.show_name, state.show_stroke, state.show_tip)
 }
@@ -1098,4 +1110,61 @@ fn paint_brush_drag_ghost(ui: &egui::Ui, presets: &[BrushPreset], scope: &str, i
             });
         });
     });
+}
+
+#[cfg(test)]
+mod preview_regression_tests {
+    use super::{CARD_MAX_W, CARD_TIP_NAME_W, CARD_TIP_ONLY_W, max_picker_card_scale, paint_picker_card};
+    use photocraft_engine::paint::BrushPreset;
+
+    #[test]
+    fn resizing_picker_preview_reuses_the_cached_stroke_texture() {
+        let ctx = egui::Context::default();
+        let preset = BrushPreset {
+            name: "Regression brush".into(),
+            brush: Default::default(),
+            builtin: false,
+            group: "Test".into(),
+            folder: Vec::new(),
+            captures: Default::default(),
+        };
+
+        // Exercise the actual card painter over successive UI frames, rather than testing a helper
+        // that could remain correct while the production call site regresses to scale-keyed slots.
+        let mut renders_after_first_frame = None;
+        for scale in [0.6_f32, 0.75, 1.0, 1.25, 1.5, 2.0] {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                paint_picker_card(ui, ui.max_rect(), &preset, false, false, (true, true, true), scale);
+            });
+            output.textures_delta.clear();
+            let renders = crate::brush_preview::render_count(&ctx);
+            if let Some(expected) = renders_after_first_frame {
+                assert_eq!(renders, expected, "resizing to scale {scale} re-rendered a preview");
+            } else {
+                renders_after_first_frame = Some(renders);
+            }
+        }
+    }
+
+    #[test]
+    fn picker_card_width_never_exceeds_its_container() {
+        let modes = [
+            ((false, false, true), CARD_TIP_ONLY_W),
+            ((true, false, true), CARD_TIP_NAME_W),
+            ((true, true, true), CARD_MAX_W),
+            ((false, true, true), CARD_MAX_W),
+            ((true, true, false), CARD_MAX_W),
+        ];
+
+        for width in [64.0_f32, 96.0, 160.0, 240.0, 360.0, 640.0] {
+            for (show, base_card_width) in modes {
+                let scale = max_picker_card_scale(width, show);
+                let card_width = base_card_width * scale;
+                assert!(
+                    card_width <= width,
+                    "card width {card_width} exceeds container width {width} for mode {show:?} at scale {scale}"
+                );
+            }
+        }
+    }
 }
