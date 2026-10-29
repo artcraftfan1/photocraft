@@ -19,6 +19,8 @@ use crate::pickers::picker_state::escape_hierarchy_key_part;
 use crate::theme::Tokens;
 
 pub(crate) const MIN_THUMB: f32 = 20.0;
+const GROUP_HEADER_HEIGHT: f32 = 30.0;
+const GROUP_DRAG_GHOST_OPACITY: f32 = 0.6;
 
 /// Asset-neutral item identity and label consumed by the shared picker browser.
 pub(crate) struct ItemView {
@@ -177,8 +179,8 @@ impl Default for BrowserCapabilities {
     }
 }
 
-/// Optional consumer-provided painter for a group row: UI, row rectangle, group, open, hovered.
-pub(crate) type PaintGroup = dyn FnMut(&egui::Ui, Rect, &GroupView, bool, bool);
+/// Optional consumer-provided painter for a group row: UI, row rectangle, group, open, hovered, opacity.
+pub(crate) type PaintGroup = dyn FnMut(&egui::Ui, Rect, &GroupView, bool, bool, f32);
 pub(crate) type PaintListItem<'a> = dyn FnMut(&egui::Ui, Rect, usize, usize, bool) + 'a;
 
 /// Consumer adapter for the generic browser. Each asset library projects its own identity and
@@ -407,13 +409,19 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                     hidden_groups.insert(g.name.clone());
                 }
                 let (hr, hresp) = if let Some(paint) = paint_group.as_deref_mut() {
-                    let (r, response) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click_and_drag());
-                    paint(ui, r, g, open, response.hovered() || response.dragged());
+                    let (r, response) = ui.allocate_exact_size(vec2(ui.available_width(), GROUP_HEADER_HEIGHT), Sense::click_and_drag());
+                    paint(ui, r, g, open, response.hovered() || response.dragged(), 1.0);
+                    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
                     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, &g.name));
                     (r, response)
                 } else {
-                    asset_browser_header(ui, &g.name, open, depth, None, 22.0)
+                    asset_browser_header(ui, &g.name, open, depth, None, GROUP_HEADER_HEIGHT)
                 };
+                if capabilities.group_drag && hresp.is_pointer_button_down_on() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                } else if capabilities.group_drag && hresp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
                 let header_released = asset_browser_header_target_with_capabilities(
                     ui,
                     &hresp,
@@ -460,17 +468,17 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                 {
                     drag = Some((gi, p));
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                    // Keep the dragged entry recognizable while it follows the pointer. The
-                    // previous group drag only showed the insertion line, leaving no indication
-                    // of which folder was being moved.
-                    let lp = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new(("preset-group-drag", panel))));
-                    let gr = Rect::from_center_size(p, vec2(hr.width().min(220.0), hr.height()));
-                    lp.rect_filled(gr, 2.0, t.card.linear_multiply(0.8));
-                    lp.rect_stroke(gr, 2.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Outside);
-                    let fold = Rect::from_min_size(pos2(gr.left() + 5.0, gr.center().y - 4.0), vec2(11.0, 8.0));
-                    lp.rect_filled(Rect::from_min_size(pos2(fold.left(), fold.top() - 2.0), vec2(5.0, 3.0)), 1.0, t.icon);
-                    lp.rect_filled(fold, 1.0, t.icon);
-                    lp.text(pos2(gr.left() + 22.0, gr.center().y), Align2::LEFT_CENTER, &g.name, FontId::proportional(11.5), t.text);
+                    // Reuse the actual header painter on a tooltip layer so the drag ghost stays
+                    // visually identical to the row, including its background and spacing.
+                    let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new(("preset-group-drag", panel)));
+                    let gr = Rect::from_center_size(p, vec2(hr.width(), hr.height()));
+                    let ghost_ui = ui.new_child(egui::UiBuilder::new().layer_id(layer).max_rect(gr));
+                    if let Some(paint) = paint_group.as_deref_mut() {
+                        paint(&ghost_ui, gr, g, open, false, GROUP_DRAG_GHOST_OPACITY);
+                    } else {
+                        crate::pickers::asset_browser_groups::paint_with_opacity(&ghost_ui, gr, open, &g.name, depth, None, GROUP_DRAG_GHOST_OPACITY);
+                    }
+                    ghost_ui.painter().rect_stroke(gr, CornerRadius::ZERO, Stroke::new(1.0, t.accent), egui::StrokeKind::Outside);
                 }
                 if capabilities.group_drag
                     && hresp.drag_stopped()

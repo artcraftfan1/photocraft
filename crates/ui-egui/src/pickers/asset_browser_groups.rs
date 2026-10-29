@@ -8,6 +8,11 @@ use egui::{Align2, Rect, Sense, pos2, vec2};
 use crate::pickers::picker_state::PresetUi;
 use crate::theme::Tokens;
 
+const DARK_SURFACE_CONTRAST: f32 = 1.13;
+const LIGHT_SURFACE_CONTRAST: f32 = 1.12;
+const DARK_TEXT_CONTRAST: f32 = 7.11;
+const LIGHT_TEXT_CONTRAST: f32 = 10.5;
+
 /// Initial expansion policy for a browser group, with explicit user toggles overriding the default.
 pub(crate) fn group_open(st: &PresetUi, panel: &str, index: usize, name: &str, all_groups_open: bool) -> bool {
     (index == 0 || all_groups_open) != st.toggled.contains(&format!("{panel}/{}", crate::pickers::picker_state::escape_hierarchy_key_part(name)))
@@ -16,39 +21,53 @@ pub(crate) fn group_open(st: &PresetUi, panel: &str, index: usize, name: &str, a
 /// Shared collapsible group/folder row. The caller owns toggle state and context actions.
 pub(crate) fn header(ui: &mut egui::Ui, name: &str, open: bool, depth: usize, count: Option<usize>, height: f32) -> (Rect, egui::Response) {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
-    paint(ui, rect, open, name, depth, response.hovered() || response.dragged(), count);
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    paint(ui, rect, open, name, depth, false, count);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, name));
     (rect, response)
 }
 
 /// Paint a group/folder header; nesting is conveyed by indentation rather than an accent bar.
-pub(crate) fn paint(ui: &egui::Ui, rect: Rect, open: bool, name: &str, depth: usize, hovered: bool, count: Option<usize>) {
+pub(crate) fn paint(ui: &egui::Ui, rect: Rect, open: bool, name: &str, depth: usize, _hovered: bool, count: Option<usize>) {
+    paint_with_opacity(ui, rect, open, name, depth, count, 1.0);
+}
+
+/// Paint the same header at a reduced opacity for its drag preview.
+pub(crate) fn paint_with_opacity(ui: &egui::Ui, rect: Rect, open: bool, name: &str, depth: usize, count: Option<usize>, opacity: f32) {
     let tokens = Tokens::get(ui.ctx());
     let indent = 14.0 * depth.min(4) as f32;
-    ui.painter().rect_filled(rect, tokens.radius_sm, if hovered { tokens.hover } else { tokens.field });
-    let x = rect.left() + 6.0 + indent;
+    let (surface_contrast, text_contrast) = if tokens.dark() {
+        (DARK_SURFACE_CONTRAST, DARK_TEXT_CONTRAST)
+    } else {
+        (LIGHT_SURFACE_CONTRAST, LIGHT_TEXT_CONTRAST)
+    };
+    let colors = crate::color_utils::contrasting_surface_colors(tokens.card, tokens.dark(), surface_contrast, text_contrast);
+    let with_opacity = |color| crate::color_utils::with_opacity(color, opacity);
+    ui.painter().rect_filled(rect, egui::CornerRadius::ZERO, with_opacity(colors.background));
+    let content_left = rect.left() + indent;
     crate::icons::paint(
         ui,
-        Rect::from_center_size(pos2(x + 6.0, rect.center().y), vec2(12.0, 12.0)),
+        // The chevron path is inset within its SVG viewBox; position its visible stroke, not the viewport.
+        Rect::from_center_size(pos2(content_left + 9.0, rect.center().y), vec2(12.0, 12.0)),
         if open { "chevron-down" } else { "chevron-right" },
-        10.0,
-        tokens.text_dim,
+        12.0,
+        with_opacity(colors.foreground),
     );
     crate::icons::paint(
         ui,
-        Rect::from_center_size(pos2(x + 24.0, rect.center().y), vec2(14.0, 14.0)),
+        Rect::from_center_size(pos2(content_left + 23.0, rect.center().y), vec2(12.0, 12.0)),
         if open { "folder-open" } else { "folder" },
         12.0,
-        tokens.icon,
+        with_opacity(colors.foreground),
     );
     ui.painter().text(
-        pos2(x + 36.0, rect.center().y),
+        pos2(content_left + 38.0, rect.center().y),
         Align2::LEFT_CENTER,
         name,
-        if depth == 0 { crate::theme::semibold(11.5) } else { crate::theme::medium(11.5) },
-        tokens.text,
+        egui::FontId::proportional(11.5),
+        with_opacity(colors.foreground),
     );
     if let Some(count) = count {
-        ui.painter().text(pos2(rect.right() - 8.0, rect.center().y), Align2::RIGHT_CENTER, count.to_string(), crate::theme::medium(11.0), tokens.text_faint);
+        ui.painter().text(pos2(rect.right() - 8.0, rect.center().y), Align2::RIGHT_CENTER, count.to_string(), egui::FontId::proportional(11.0), with_opacity(colors.foreground));
     }
 }
