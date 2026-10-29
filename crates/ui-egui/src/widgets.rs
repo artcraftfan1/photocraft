@@ -37,13 +37,14 @@ pub fn style_spectrum_popup_menu(ui: &mut Ui) {
 /// An accent insertion line on one edge of `r` while a drag hovers it (vertical: on its left or,
 /// `after`, right edge; else on its top or bottom).
 pub fn drop_line(ui: &Ui, r: Rect, after: bool, vertical: bool, t: &Tokens) {
-    let s = Stroke::new(2.0, t.accent);
     if vertical {
-        let x = if after { r.right() } else { r.left() };
-        ui.painter().line_segment([pos2(x, r.top() + 2.0), pos2(x, r.bottom() - 2.0)], s);
+        // Asset insertion markers sit in the gap, not on the card edge. The 2 px card gap
+        // centers the 4 px stroke one pixel outside the edge; extend 1 px beyond the card.
+        let x = if after { r.right() + 1.0 } else { r.left() - 1.0 };
+        ui.painter().line_segment([pos2(x, r.top() - 1.0), pos2(x, r.bottom() + 1.0)], Stroke::new(4.0, t.accent));
     } else {
         let y = if after { r.bottom() } else { r.top() };
-        ui.painter().line_segment([pos2(r.left() + 4.0, y), pos2(r.right() - 4.0, y)], s);
+        ui.painter().line_segment([pos2(r.left() + 4.0, y), pos2(r.right() - 4.0, y)], Stroke::new(2.0, t.accent));
     }
 }
 

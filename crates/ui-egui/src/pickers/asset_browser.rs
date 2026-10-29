@@ -571,6 +571,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                             // accumulate with row spacing and leave uneven vertical gaps.
                             let grid_height = if rows == 0 { 0.0 } else { rows as f32 * cell.y + rows.saturating_sub(1) as f32 * gap };
                             let (area, _) = ui.allocate_exact_size(vec2(w, grid_height), Sense::hover());
+                            let mut insertion_markers = Vec::new();
                             for (run_i, it) in items.iter().enumerate() {
                                 let ii = g.items.iter().position(|original| std::ptr::eq(original, *it)).unwrap_or(run_i);
                                 let (cx, cy) = ((run_i % cols) as f32, (run_i / cols) as f32);
@@ -578,6 +579,13 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                                 // A one-pixel inset on every card yields a two-pixel visible gap
                                 // between neighbours while retaining the same gap at group edges.
                                 let r = if !list && !flush { r.shrink(1.0) } else { r };
+                                let next_rect = (run_i + 1 < items.len()).then(|| {
+                                    let next_i = run_i + 1;
+                                    let (next_x, next_y) = ((next_i % cols) as f32, (next_i / cols) as f32);
+                                    let next =
+                                        Rect::from_min_size(area.min + vec2(pad + center_offset + next_x * (cell.x + gap), next_y * (cell.y + gap)), cell);
+                                    if !list && !flush { next.shrink(1.0) } else { next }
+                                });
                                 let resp = ui.interact(r, ui.id().with((panel, gi, ii)), Sense::click_and_drag());
                                 let is_sel = selected.as_deref() == Some(&it.key);
                                 if list {
@@ -608,7 +616,11 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                                         ui.painter().rect_stroke(r, CornerRadius::ZERO, Stroke::new(2.0, t.accent), egui::StrokeKind::Middle);
                                     }
                                 }
-                                let released_drag = if capabilities.item_drag { asset_browser_item_target(ui, &resp, r, panel, &it.key, !list) } else { None };
+                                let released_drag = if capabilities.item_drag {
+                                    asset_browser_item_target(ui, &resp, r, next_rect, &mut insertion_markers, panel, &it.key, !list)
+                                } else {
+                                    None
+                                };
                                 if let Some(AssetDrag::Preset { scope, key }) = released_drag
                                     && scope.as_str() == panel
                                     && key.as_str() != it.key.as_str()
@@ -680,6 +692,9 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                                         });
                                     }
                                 }
+                            }
+                            for (marker_rect, after, grid) in insertion_markers {
+                                crate::widgets::drop_line(ui, marker_rect, after, grid, &t);
                             }
                         };
                         draw_hierarchy(

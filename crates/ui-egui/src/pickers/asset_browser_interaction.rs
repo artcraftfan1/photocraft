@@ -139,13 +139,31 @@ pub(crate) fn asset_browser_header_target_with_capabilities(
 }
 
 /// Shared item hit target and insertion indicator.
-pub(crate) fn asset_browser_item_target(ui: &egui::Ui, response: &egui::Response, rect: Rect, scope: &str, key: &str, grid: bool) -> Option<AssetDrag> {
-    let t = Tokens::get(ui.ctx());
+pub(crate) fn asset_browser_item_target(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    rect: Rect,
+    next_rect: Option<Rect>,
+    insertion_markers: &mut Vec<(Rect, bool, bool)>,
+    scope: &str,
+    key: &str,
+    grid: bool,
+) -> Option<AssetDrag> {
     response.dnd_set_drag_payload(AssetDrag::Preset { scope: scope.to_string(), key: key.to_string() });
     let hovered = response.dnd_hover_payload::<AssetDrag>().map(|payload| payload.as_ref().clone());
     if matches!(&hovered, Some(AssetDrag::Preset { scope: drag_scope, key: dragged }) if drag_scope.as_str() == scope && dragged.as_str() != key) {
         let after = ui.ctx().pointer_interact_pos().is_some_and(|p| if grid { p.x > rect.center().x } else { p.y > rect.center().y });
-        crate::widgets::drop_line(ui, rect, after, grid, &t);
+        // Across a row break, use the edge of the card under the pointer rather than
+        // jumping to the other row. This keeps exactly one marker visible at a time.
+        if after {
+            if let Some(next) = next_rect.filter(|next| !grid || next.top() == rect.top()) {
+                insertion_markers.push((next, false, grid));
+            } else {
+                insertion_markers.push((rect, true, grid));
+            }
+        } else {
+            insertion_markers.push((rect, false, grid));
+        }
     }
     response
         .dnd_release_payload::<AssetDrag>()
