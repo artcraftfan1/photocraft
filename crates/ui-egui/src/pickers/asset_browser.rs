@@ -258,8 +258,8 @@ fn compact_context_menu_target(ui: &mut egui::Ui, resp: egui::Response, menu: im
     }
 }
 
-/// Space between the cells of a preset grid, and the grid's inset from the panel's left edge.
-const GRID_GAP: f32 = 4.0;
+/// Space between preset cards, and the grid's inset from the panel's left edge.
+const GRID_GAP: f32 = 0.0;
 type FolderRelease = (AssetDrag, String, Vec<String>, bool);
 
 /// Draw only the reusable library region. It owns groups/items, selection, drag/drop and item/group
@@ -377,7 +377,7 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
         .min_scrolled_height(scroll_height)
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, 1.0);
             // Keep drag targets reachable when a preset or hierarchy node is dragged beyond the
             // current viewport. This behavior belongs to the shared scrollable browser, not to a
             // particular asset consumer.
@@ -559,11 +559,17 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                             let rows = items.len().div_ceil(cols);
                             let grid_width = cols as f32 * cell.x + cols.saturating_sub(1) as f32 * gap;
                             let center_offset = if !list && center_grid { ((w - pad - grid_width).max(0.0)) * 0.5 } else { 0.0 };
-                            let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (cell.y + gap) + 2.0), Sense::hover());
+                            // Reserve the exact grid height: the extra two pixels here used to
+                            // accumulate with row spacing and leave uneven vertical gaps.
+                            let grid_height = if rows == 0 { 0.0 } else { rows as f32 * cell.y + rows.saturating_sub(1) as f32 * gap };
+                            let (area, _) = ui.allocate_exact_size(vec2(w, grid_height), Sense::hover());
                             for (run_i, it) in items.iter().enumerate() {
                                 let ii = g.items.iter().position(|original| std::ptr::eq(original, *it)).unwrap_or(run_i);
                                 let (cx, cy) = ((run_i % cols) as f32, (run_i / cols) as f32);
                                 let r = Rect::from_min_size(area.min + vec2(pad + center_offset + cx * (cell.x + gap), cy * (cell.y + gap)), cell);
+                                // A one-pixel inset on every card yields a two-pixel visible gap
+                                // between neighbours while retaining the same gap at group edges.
+                                let r = if !list && !flush { r.shrink(1.0) } else { r };
                                 let resp = ui.interact(r, ui.id().with((panel, gi, ii)), Sense::click_and_drag());
                                 let is_sel = selected.as_deref() == Some(&it.key);
                                 if list {
@@ -588,19 +594,10 @@ pub(crate) fn browser(ui: &mut egui::Ui, st: &mut PresetUi, adapter: &mut Browse
                                 } else {
                                     asset_browser_item_info(&resp, &it.name, is_sel);
                                     paint_item(ui, r, gi, ii);
-                                    // Touching cells draw no border of their own: only the selected and the
-                                    // hovered one are outlined, over their neighbours, as in Photoshop.
-                                    let stroke = if is_sel {
-                                        Some((Stroke::new(2.0, t.accent), egui::StrokeKind::Outside))
-                                    } else if resp.hovered() {
-                                        Some((Stroke::new(1.0, t.text_dim), egui::StrokeKind::Outside))
-                                    } else if flush {
-                                        None
-                                    } else {
-                                        Some((Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside))
-                                    };
-                                    if let Some((stroke, kind)) = stroke {
-                                        ui.painter().rect_stroke(r, CornerRadius::same(if flush { 0 } else { 2 }), stroke, kind);
+                                    // Only selected cards are outlined; centring the stroke on the inset
+                                    // card edge leaves one pixel of it on either side.
+                                    if is_sel {
+                                        ui.painter().rect_stroke(r, CornerRadius::ZERO, Stroke::new(2.0, t.accent), egui::StrokeKind::Middle);
                                     }
                                 }
                                 let released_drag = if capabilities.item_drag { asset_browser_item_target(ui, &resp, r, panel, &it.key, !list) } else { None };
